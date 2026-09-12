@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: gpios-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: gpios_user
+      POSTGRES_PASSWORD: gpios_password
+      POSTGRES_DB: gpios_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U gpios_user -d gpios_db']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gpios-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: gpios-redis
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gpios-network
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: gpios-backend
+    restart: always
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://gpios_user:gpios_password@postgres:5432/gpios_db?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - '3001:3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - gpios-network
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: gpios-frontend
+    restart: always
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+    ports:
+      - '3000:3000'
+    networks:
+      - gpios-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  gpios-network:
+    driver: bridge

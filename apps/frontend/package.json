@@ -1,0 +1,41 @@
+{
+  "name": "@gpios/frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx next dev",
+    "build": "npx next build",
+    "start": "npx next start",
+    "lint": "npx eslint \"src/**/*.{ts,tsx}\"",
+    "lint:fix": "npx eslint \"src/**/*.{ts,tsx}\" --fix",
+    "typecheck": "npx -p typescript@5.7.3 tsc --noEmit",
+    "test": "npx vitest run",
+    "test:e2e": "npx playwright test",
+    "clean": "npx rimraf .next dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@gpios/shared": "workspace:*",
+    "@tanstack/react-query": "^5.66.0",
+    "@xyflow/react": "^12.4.2",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.4.1",
+    "lucide-react": "^0.475.0",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@types/node": "^22.10.10",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.1",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.4"
+  }
+}

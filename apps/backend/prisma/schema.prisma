@@ -1,0 +1,3060 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  SUSPENDED
+}
+
+enum AuthProviderType {
+  LOCAL
+  GOOGLE
+  MICROSOFT
+  AADHAAR
+  WEBAUTHN
+}
+
+enum ProfileStatus {
+  CREATED
+  IN_PROGRESS
+  PARTIALLY_COMPLETED
+  COMPLETED
+  VERIFIED
+  ARCHIVED
+}
+
+enum FactCategory {
+  PERSONAL
+  DEMOGRAPHICS
+  FAMILY
+  EDUCATION
+  OCCUPATION
+  FINANCIAL
+  ADDRESS
+  AGRICULTURE
+  DISABILITY
+  COMMUNITY
+  RELIGION
+  GOVERNMENT_IDENTIFIER
+  CUSTOM
+}
+
+enum AttributeDataType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+  ENUM
+  JSON
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  SELF_DECLARED
+  SYSTEM_VERIFIED
+  DOCUMENT_VERIFIED
+  REJECTED
+}
+
+enum CreationMethod {
+  USER_FORM
+  OCR
+  ADMIN
+  DIGILOCKER
+  API
+  IMPORT
+  AI_EXTRACTION
+}
+
+enum ConfidenceSource {
+  USER
+  DOCUMENT
+  AI
+  ADMIN
+  SYSTEM
+}
+
+enum OnboardingSessionStatus {
+  STARTED
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+enum QuestionInputType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+  RADIO
+  CHECKBOX
+  MULTI_SELECT
+  TEXTAREA
+}
+
+enum AnswerStatus {
+  DRAFT
+  SUBMITTED
+  VALIDATED
+}
+
+enum PolicyLifecycleStatus {
+  DISCOVERED
+  DOWNLOADED
+  PROCESSED
+  NORMALIZED
+  ACTIVE
+  SUPERSEDED
+  ARCHIVED
+}
+
+enum KnowledgeSourceType {
+  PORTAL
+  GAZETTE
+  API
+  BUDGET
+  SCHOLARSHIP
+  GAZETTE_PDF
+}
+
+enum CrawlStrategy {
+  REALTIME_POLL
+  CRON_SCHEDULE
+  WEB_SCRAPE
+  MANUAL_UPLOAD
+  API_PULL
+}
+
+enum PolicyRelationshipType {
+  SUPERSEDES
+  DEPENDS_ON
+  EXTENDS
+  RELATED_SCHEME
+  REQUIRED_DOCUMENT
+  PARENT_POLICY
+  CHILD_POLICY
+}
+
+enum DocumentClassification {
+  SCHEME
+  GOVERNMENT_ORDER
+  GAZETTE
+  CIRCULAR
+  NOTIFICATION
+  AMENDMENT
+  GUIDELINE
+  FAQ
+  BUDGET
+  PRESS_RELEASE
+}
+
+enum EmbeddingStatus {
+  PENDING
+  GENERATED
+  FAILED
+}
+
+enum EligibilityStatus {
+  ELIGIBLE
+  INELIGIBLE
+  POTENTIALLY_ELIGIBLE
+  REQUIRES_MORE_DATA
+  EXPIRED
+}
+
+enum RuleOperator {
+  EQUALS
+  NOT_EQUALS
+  GREATER_THAN
+  LESS_THAN
+  GREATER_OR_EQUAL
+  LESS_OR_EQUAL
+  BETWEEN
+  IN
+  NOT_IN
+  EXISTS
+  NOT_EXISTS
+  REGEX
+  BOOLEAN
+}
+
+enum LogicalGroupOperator {
+  ALL
+  ANY
+  NONE
+  X_OF_Y
+}
+
+enum RuleEvaluationCost {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RuleDependencyType {
+  DEPENDS_ON
+  BLOCKS
+  REQUIRES
+  OPTIONAL
+}
+
+enum OpportunityGapType {
+  INCOME_THRESHOLD_EXCEEDED
+  AGE_THRESHOLD_NOT_MET
+  MISSING_IDENTIFIER
+  MISSING_EVIDENCE
+  LOCATION_MISMATCH
+}
+
+enum RecommendationStatus {
+  ACTIVE
+  SUPERSEDED
+  EXPIRED
+  ARCHIVED
+}
+
+enum RecommendationPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum RecommendationLifecycleStatus {
+  GENERATED
+  RECOMMENDED
+  VIEWED
+  SAVED
+  IN_PROGRESS
+  APPLIED
+  APPROVED
+  REJECTED
+  EXPIRED
+  ARCHIVED
+}
+
+enum ApplicationReadinessStatus {
+  READY
+  PARTIALLY_READY
+  MISSING_DOCUMENTS
+  NOT_READY
+}
+
+enum RecommendationChangeType {
+  ADDED
+  REMOVED
+  MOVED
+  UPDATED
+  EXPIRED
+}
+
+enum RecommendationFeedbackAction {
+  VIEWED
+  IGNORED
+  SAVED
+  DISMISSED
+  APPLIED
+  COMPLETED
+  EXPIRED
+  HIDDEN
+}
+
+model SystemHealthCheck {
+  id        String   @id @default(uuid())
+  status    String
+  createdAt DateTime @default(now())
+
+  @@map("system_health_checks")
+}
+
+model User {
+  id                     String           @id @default(uuid())
+  email                  String           @unique
+  fullName               String
+  status                 UserStatus       @default(ACTIVE)
+  isEmailVerified        Boolean          @default(false)
+  lastLoginAt            DateTime?
+  failedLoginCount       Int              @default(0)
+  accountLockedUntil     DateTime?
+  passwordChangedAt      DateTime?
+  version                Int              @default(1)
+  deletedAt              DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  identities             AuthIdentity[]
+  userRoles              UserRole[]
+  refreshSessions        RefreshSession[]
+  loginHistories         LoginHistory[]
+  citizenProfile         CitizenProfile?
+  onboardingSession      OnboardingSession?
+  applicationJourneys    ApplicationJourney[]
+  documents              Document[]
+
+  @@index([email])
+  @@index([status])
+  @@map("users")
+}
+
+model AuthIdentity {
+  id             String           @id @default(uuid())
+  userId         String
+  provider       AuthProviderType @default(LOCAL)
+  providerUserId String
+  passwordHash   String?
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("auth_identities")
+}
+
+model Role {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  description     String?
+  version         Int              @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@index([name])
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  action          String           @unique
+  description     String?
+  deletedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  rolePermissions RolePermission[]
+
+  @@index([action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String
+  roleId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RefreshSession {
+  id                  String    @id @default(uuid())
+  userId              String
+  tokenHash           String    @unique
+  isRevoked           Boolean   @default(false)
+  expiresAt           DateTime
+  ipAddress           String?
+  userAgent           String?
+  deviceName          String?
+  platform            String?
+  browser             String?
+  operatingSystem     String?
+  approximateLocation String?
+  lastActivityAt      DateTime  @default(now())
+  replacedByTokenId   String?
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_sessions")
+}
+
+model LoginHistory {
+  id            String   @id @default(uuid())
+  userId        String?
+  email         String
+  status        String
+  ipAddress     String?
+  userAgent     String?
+  requestId     String?
+  failureReason String?
+  createdAt     DateTime @default(now())
+
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([email])
+  @@map("login_histories")
+}
+
+model CitizenProfile {
+  id                    String            @id @default(uuid())
+  userId                String            @unique
+  status                ProfileStatus     @default(CREATED)
+  completionPercentage  Float             @default(0.0)
+  version               Int               @default(1)
+  deletedAt             DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  facts                 CitizenFact[]
+  versions              CitizenProfileVersion[]
+  profileSnapshots      ProfileSnapshot[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("citizen_profiles")
+}
+
+model CitizenAttributeRegistry {
+  id                    String            @id @default(uuid())
+  key                   String            @unique
+  displayName           String
+  category              FactCategory
+  dataType              AttributeDataType
+  isMandatory           Boolean           @default(false)
+  isSearchable          Boolean           @default(true)
+  isFilterable          Boolean           @default(true)
+  isAiSearchable        Boolean           @default(true)
+  isCopilotVisible      Boolean           @default(true)
+  isEligibilityRelevant Boolean           @default(true)
+  isSensitiveData       Boolean           @default(false)
+  piiClassification     String            @default("LOW")
+  displayOrder          Int               @default(0)
+  uiGroup               String            @default("GENERAL")
+  parentKey             String?
+  activationCondition   String?
+  dependencyRules       Json?
+  validationRules       Json?
+  description           String?
+  version               Int               @default(1)
+  isActive              Boolean           @default(true)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  facts                 CitizenFact[]
+  questions             QuestionCatalog[]
+
+  @@index([key])
+  @@index([category, isActive])
+  @@map("citizen_attribute_registry")
+}
+
+model CitizenFact {
+  id                    String            @id @default(uuid())
+  profileId             String
+  attributeKey          String
+  valueText             String?
+  valueNumber           Float?
+  valueBoolean          Boolean?
+  valueDate             DateTime?
+  valueJson             Json?
+  normalizedValue       Json?
+  confidence            Float             @default(1.0)
+  confidenceSource      ConfidenceSource  @default(USER)
+  confidenceStrategy    String            @default("DETERMINISTIC")
+  verificationLevel     String            @default("SELF_DECLARED")
+  verificationStatus    VerificationStatus @default(SELF_DECLARED)
+  source                String            @default("MANUAL")
+  sourcePrecedence      Int               @default(5)
+  freshnessStatus       String            @default("FRESH")
+  freshnessExpiryDate   DateTime?
+  freshnessPolicyVersion Int              @default(1)
+  creationMethod        CreationMethod    @default(USER_FORM)
+  createdBy             String
+  evidenceId            String?
+  isCurrent             Boolean           @default(true)
+  version               Int               @default(1)
+  effectiveFrom         DateTime          @default(now())
+  effectiveTo           DateTime?
+  deletedAt             DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  profile               CitizenProfile            @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  attribute             CitizenAttributeRegistry  @relation(fields: [attributeKey], references: [key])
+  evidence              FactEvidence?             @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  history               CitizenFactHistory[]
+  factVersions          CitizenFactVersion[]
+  provenances           FactProvenance[]
+
+  @@unique([profileId, attributeKey])
+  @@index([profileId, isCurrent])
+  @@index([attributeKey])
+  @@index([verificationStatus])
+  @@map("citizen_facts")
+}
+
+model CitizenFactHistory {
+  id            String            @id @default(uuid())
+  factId        String
+  version       Int
+  previousValue Json?
+  newValue      Json?
+  effectiveDate DateTime          @default(now())
+  changeReason  String?
+  changedBy     String
+  createdAt     DateTime          @default(now())
+
+  fact          CitizenFact       @relation(fields: [factId], references: [id], onDelete: Cascade)
+
+  @@index([factId])
+  @@map("citizen_fact_history")
+}
+
+model CitizenProfileVersion {
+  id            String            @id @default(uuid())
+  profileId     String
+  versionNumber Int
+  snapshot      Json
+  changeSummary String?
+  createdAt     DateTime          @default(now())
+
+  profile       CitizenProfile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, versionNumber])
+  @@map("citizen_profile_versions")
+}
+
+model FactEvidence {
+  id                 String             @id @default(uuid())
+  documentType       String
+  issuingAuthority   String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  storageRef         String?
+  checksum           String?
+  metadata           Json?
+  deletedAt          DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  facts              CitizenFact[]
+
+  @@map("fact_evidence")
+}
+
+model DiscoveryBlueprint {
+  id                  String               @id @default(uuid())
+  code                String               @unique
+  name                String
+  targetPersona       String               @default("ALL")
+  categories          Json
+  stepOrdering        Json
+  completionRules     Json?
+  version             Int                  @default(1)
+  publishedAt         DateTime             @default(now())
+  retiredAt           DateTime?
+  previousBlueprintId String?
+  nextBlueprintId     String?
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  sessions            OnboardingSession[]
+
+  @@map("discovery_blueprints")
+}
+
+model QuestionCatalog {
+  id                String               @id @default(uuid())
+  attributeKey      String
+  questionCode      String               @unique
+  label             String
+  description       String?
+  helpText          String?
+  placeholder       String?
+  inputType         QuestionInputType    @default(TEXT)
+  options           Json?
+  renderingMetadata Json?
+  displayGroup      String               @default("GENERAL")
+  displayOrder      Int                  @default(0)
+  variant           String               @default("DEFAULT")
+  isActive          Boolean              @default(true)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  attribute         CitizenAttributeRegistry @relation(fields: [attributeKey], references: [key])
+
+  @@index([attributeKey])
+  @@map("question_catalog")
+}
+
+model OnboardingSession {
+  id                   String                  @id @default(uuid())
+  userId               String                  @unique
+  blueprintId          String
+  blueprintVersion     Int                     @default(1)
+  currentStep          String
+  completedSteps       Json
+  skippedSteps         Json
+  draftAnswers         Json?
+  completionPercentage Float                   @default(0.0)
+  status               OnboardingSessionStatus @default(STARTED)
+  version              Int                     @default(1)
+  updatedBy            String
+  previousState        Json?
+  changeReason         String?
+  lastActivityAt       DateTime                @default(now())
+  completedAt          DateTime?
+  deletedAt            DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  user                 User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blueprint            DiscoveryBlueprint      @relation(fields: [blueprintId], references: [id])
+  timeline             OnboardingSessionTimeline[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("onboarding_sessions")
+}
+
+model OnboardingSessionTimeline {
+  id          String            @id @default(uuid())
+  sessionId   String
+  eventType   String
+  stepKey     String?
+  questionKey String?
+  details     Json?
+  createdAt   DateTime          @default(now())
+
+  session     OnboardingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("onboarding_session_timelines")
+}
+
+model OnboardingAnalytics {
+  id                         String   @id @default(uuid())
+  blueprintId                String
+  stepKey                    String
+  averageTimePerQuestionSec  Float    @default(0.0)
+  firstPassCompletionRate    Float    @default(0.0)
+  revisitCount               Int      @default(0)
+  dependencyTriggerFrequency Int      @default(0)
+  validationRetryRate        Float    @default(0.0)
+  abandonedCount             Int      @default(0)
+  skippedCount               Int      @default(0)
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([blueprintId, stepKey])
+  @@map("onboarding_analytics")
+}
+
+model KnowledgeSource {
+  id                    String                   @id @default(uuid())
+  code                  String                   @unique
+  name                  String
+  sourceType            KnowledgeSourceType      @default(PORTAL)
+  baseUrl               String
+  crawlStrategy         CrawlStrategy            @default(CRON_SCHEDULE)
+  updateFrequencyCron   String                   @default("0 0 * * *")
+  capabilities          Json
+  healthStatus          String                   @default("HEALTHY")
+  priority              Int                      @default(1)
+  isActive              Boolean                  @default(true)
+  deletedAt             DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  schedules             KnowledgeSourceSchedule[]
+  documents             PolicyDocument[]
+  jobs                  KnowledgeIngestionJob[]
+
+  @@map("knowledge_sources")
+}
+
+model KnowledgeSourceSchedule {
+  id                    String            @id @default(uuid())
+  sourceId              String
+  cronExpression        String
+  adaptiveIntervalMin   Int               @default(60)
+  lastRunAt             DateTime?
+  nextRunAt             DateTime?
+  retryCount            Int               @default(0)
+  maxRetries            Int               @default(3)
+  createdAt             DateTime          @default(now())
+
+  source                KnowledgeSource   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@map("knowledge_source_schedules")
+}
+
+model PolicyDocument {
+  id                    String                 @id @default(uuid())
+  sourceId              String
+  documentNumber        String                 @unique
+  title                 String
+  classification        DocumentClassification @default(SCHEME)
+  status                PolicyLifecycleStatus  @default(DISCOVERED)
+  currentVersionNumber  Int                    @default(1)
+  deletedAt             DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  source                KnowledgeSource        @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  versions              PolicyVersion[]
+  chunks                PolicyChunk[]
+  fingerprints          KnowledgeFingerprint[]
+  outgoingRelations     PolicyRelationship[]   @relation("SourceDocument")
+  incomingRelations     PolicyRelationship[]   @relation("TargetDocument")
+  qualityReports        KnowledgeQualityReport[]
+
+  @@index([sourceId])
+  @@index([status])
+  @@map("policy_documents")
+}
+
+model PolicyVersion {
+  id                    String                 @id @default(uuid())
+  documentId            String
+  versionNumber         Int
+  fingerprintHash       String                 @unique
+  rawContentUrl         String?
+  effectiveDate         DateTime?
+  expiryDate            DateTime?
+  supersededByVersionId String?
+  isCurrent             Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+
+  document              PolicyDocument         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunks                PolicyChunk[]
+  policyRules           PolicyRule[]
+
+  @@unique([documentId, versionNumber])
+  @@map("policy_versions")
+}
+
+model PolicyRelationship {
+  id                    String                 @id @default(uuid())
+  sourceDocumentId      String
+  targetDocumentId      String
+  relationshipType      PolicyRelationshipType
+
+  sourceDocument        PolicyDocument         @relation("SourceDocument", fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  targetDocument        PolicyDocument         @relation("TargetDocument", fields: [targetDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceDocumentId, targetDocumentId, relationshipType])
+  @@map("policy_relationships")
+}
+
+model PolicyChunk {
+  id                    String                 @id @default(uuid())
+  documentId            String
+  versionId             String
+  stableChunkId         String
+  chunkIndex            Int
+  sectionTitle          String?
+  pageNumber            Int?
+  paragraphIndex        Int?
+  content               String
+  checksum              String
+  createdAt             DateTime               @default(now())
+
+  document              PolicyDocument         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version               PolicyVersion          @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  metadata              PolicyChunkMetadata?
+  embeddingPrep         EmbeddingPreparation?
+
+  @@index([documentId, versionId])
+  @@index([stableChunkId])
+  @@map("policy_chunks")
+}
+
+model PolicyChunkMetadata {
+  id                    String                 @id @default(uuid())
+  chunkId               String                 @unique
+  ministry              String?
+  department            String?
+  schemeName            String?
+  state                 String?
+  district              String?
+  beneficiaryCategory   String?
+  normalizedAmount      Float?
+  extractionConfidence  Float                  @default(1.0)
+  extractionMethod      String                 @default("DETERMINISTIC")
+  extractedBy           String                 @default("SYSTEM")
+  extractionTimestamp   DateTime               @default(now())
+  sourceLocation        String?
+
+  chunk                 PolicyChunk            @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@map("policy_chunk_metadata")
+}
+
+model KnowledgeFingerprint {
+  id                    String                 @id @default(uuid())
+  documentId            String
+  fingerprintHash       String                 @unique
+  documentSize          Int
+  title                 String
+  publicationDate       DateTime?
+  sourceId              String
+  createdAt             DateTime               @default(now())
+
+  document              PolicyDocument         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([fingerprintHash])
+  @@map("knowledge_fingerprints")
+}
+
+model KnowledgeQualityReport {
+  id                    String                 @id @default(uuid())
+  documentId            String
+  completenessScore     Float                  @default(1.0)
+  parsingSuccess        Boolean                @default(true)
+  metadataConfidence    Float                  @default(1.0)
+  duplicateConfidence   Float                  @default(1.0)
+  chunkCoverage         Float                  @default(1.0)
+  normalizationSuccess  Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+
+  document              PolicyDocument         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("knowledge_quality_reports")
+}
+
+model EmbeddingPreparation {
+  id                    String                 @id @default(uuid())
+  chunkId               String                 @unique
+  status                EmbeddingStatus        @default(PENDING)
+  embeddingVersion      String                 @default("v1")
+  modelIdentifier       String                 @default("text-embedding-3-small")
+  checksum              String
+  updatedAt             DateTime               @updatedAt
+
+  chunk                 PolicyChunk            @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@map("embedding_preparations")
+}
+
+model KnowledgeIngestionJob {
+  id                         String            @id @default(uuid())
+  sourceId                   String
+  status                     String            @default("RUNNING")
+  stage                      String            @default("DISCOVERY")
+  processingDurationMs       Int               @default(0)
+  parsingDurationMs          Int               @default(0)
+  normalizationDurationMs    Int               @default(0)
+  chunkGenerationDurationMs  Int               @default(0)
+  storageDurationMs          Int               @default(0)
+  errorMessage               String?
+  createdAt                  DateTime          @default(now())
+  completedAt                DateTime?
+
+  source                     KnowledgeSource   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, status])
+  @@map("knowledge_ingestion_jobs")
+}
+
+model PolicyRule {
+  id               String              @id @default(uuid())
+  policyVersionId  String
+  ruleCode         String              @unique
+  name             String
+  description      String?
+  estimatedCost    RuleEvaluationCost  @default(LOW)
+  isActive         Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  policyVersion    PolicyVersion       @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  versions         PolicyRuleVersion[]
+  dependencies     RuleDependency[]    @relation("SourceRule")
+  dependents       RuleDependency[]    @relation("TargetRule")
+
+  @@map("policy_rules")
+}
+
+model PolicyRuleVersion {
+  id               String              @id @default(uuid())
+  ruleId           String
+  versionNumber    Int
+  logicFingerprint String
+  isCurrent        Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+
+  rule             PolicyRule          @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  groups           RuleGroup[]
+  decisionTraces   DecisionTrace[]
+
+  @@unique([ruleId, versionNumber])
+  @@map("policy_rule_versions")
+}
+
+model RuleGroup {
+  id                  String               @id @default(uuid())
+  ruleVersionId       String
+  parentGroupId       String?
+  logicalOperator     LogicalGroupOperator @default(ALL)
+  thresholdX          Int?
+
+  ruleVersion         PolicyRuleVersion    @relation(fields: [ruleVersionId], references: [id], onDelete: Cascade)
+  parentGroup         RuleGroup?           @relation("NestedGroups", fields: [parentGroupId], references: [id])
+  childGroups         RuleGroup[]          @relation("NestedGroups")
+  conditions          RuleCondition[]
+
+  @@map("rule_groups")
+}
+
+model RuleCondition {
+  id             String             @id @default(uuid())
+  groupId        String
+  attributeKey   String
+  operator       RuleOperator
+  expectedValue  Json
+  description    String?
+  estimatedCost  RuleEvaluationCost @default(LOW)
+
+  group          RuleGroup          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  factUsageIndex FactUsageIndex[]
+
+  @@index([attributeKey])
+  @@map("rule_conditions")
+}
+
+model ExplainabilityTemplate {
+  id             String   @id @default(uuid())
+  code           String   @unique
+  templateText   String
+  locale         String   @default("en-IN")
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("explainability_templates")
+}
+
+model RuleDependency {
+  id             String             @id @default(uuid())
+  sourceRuleId   String
+  targetRuleId   String
+  dependencyType RuleDependencyType @default(DEPENDS_ON)
+
+  sourceRule     PolicyRule         @relation("SourceRule", fields: [sourceRuleId], references: [id], onDelete: Cascade)
+  targetRule     PolicyRule         @relation("TargetRule", fields: [targetRuleId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceRuleId, targetRuleId, dependencyType])
+  @@map("rule_dependencies")
+}
+
+model FactUsageIndex {
+  id             String        @id @default(uuid())
+  attributeKey   String
+  conditionId    String
+  ruleVersionId  String
+  createdAt      DateTime      @default(now())
+
+  condition      RuleCondition @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+
+  @@index([attributeKey])
+  @@map("fact_usage_indexes")
+}
+
+model DecisionTrace {
+  id                   String              @id @default(uuid())
+  userId               String
+  citizenSnapshotId    String
+  policyVersionId      String
+  policyRuleVersionId  String
+  status               EligibilityStatus
+  executionDurationMs  Int
+  traceVersion         String              @default("v1")
+  engineVersion        String              @default("1.0.0")
+  correlationId        String
+  evaluatedRulesCount  Int
+  passedRulesCount     Int
+  failedRulesCount     Int
+  skippedRulesCount    Int
+  createdAt            DateTime            @default(now())
+
+  ruleVersion          PolicyRuleVersion   @relation(fields: [policyRuleVersionId], references: [id])
+  nodes                DecisionTraceNode[]
+  edges                DecisionTraceEdge[]
+  snapshots            EligibilitySnapshot[]
+
+  @@index([userId])
+  @@index([citizenSnapshotId])
+  @@map("decision_traces")
+}
+
+model DecisionTraceNode {
+  id             String        @id @default(uuid())
+  traceId        String
+  nodeType       String
+  label          String
+  status         String
+  metadata       Json?
+
+  trace          DecisionTrace @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@map("decision_trace_nodes")
+}
+
+model DecisionTraceEdge {
+  id             String        @id @default(uuid())
+  traceId        String
+  sourceNodeId   String
+  targetNodeId   String
+  relationship   String
+
+  trace          DecisionTrace @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@map("decision_trace_edges")
+}
+
+model EligibilitySnapshot {
+  id                   String              @id @default(uuid())
+  userId               String
+  citizenSnapshotId    String
+  policyVersionId      String
+  decisionTraceId      String
+  status               EligibilityStatus
+  resultSummary        Json
+  createdAt            DateTime            @default(now())
+
+  decisionTrace        DecisionTrace       @relation(fields: [decisionTraceId], references: [id])
+  results              EligibilityResult[]
+  benefitAnalysis      BenefitAnalysis?
+  opportunityAnalysis  OpportunityAnalysis?
+  recommendationSnapshots RecommendationSnapshot[]
+
+  @@index([userId])
+  @@map("eligibility_snapshots")
+}
+
+model EligibilityResult {
+  id                   String              @id @default(uuid())
+  snapshotId           String
+  policyId             String
+  policyVersionId      String
+  status               EligibilityStatus
+  passedRules          Json
+  failedRules          Json
+  skippedRules         Json
+  humanExplanation     String
+  technicalExplanation String
+  createdAt            DateTime            @default(now())
+
+  snapshot             EligibilitySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@map("eligibility_results")
+}
+
+model OpportunityAnalysis {
+  id                   String              @id @default(uuid())
+  snapshotId           String
+  gapType              OpportunityGapType
+  description          String
+  requiredAction       String
+  potentialBenefitAmount Float?
+  gapValue             Json?
+  createdAt            DateTime            @default(now())
+
+  snapshot             EligibilitySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId])
+  @@map("opportunity_analyses")
+}
+
+model BenefitAnalysis {
+  id                   String              @id @default(uuid())
+  snapshotId           String
+  totalMonetaryValue   Float               @default(0.0)
+  recurringMonthlyValue Float              @default(0.0)
+  oneTimeGrantValue    Float               @default(0.0)
+  urgencyLevel         String              @default("MEDIUM")
+  applicationDeadline  DateTime?
+  createdAt            DateTime            @default(now())
+
+  snapshot             EligibilitySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId])
+  @@map("benefit_analyses")
+}
+
+model EvaluationMetricsRecord {
+  id                          String   @id @default(uuid())
+  userId                      String
+  executionDurationMs         Int
+  graphDepth                  Int
+  executedRuleCount           Int
+  skippedRuleCount            Int
+  dependencyTraversalCount    Int
+  cacheHit                    Boolean
+  replayExecutionTimeMs       Int?
+  incrementalEvaluationSavingsMs Int?
+  createdAt                   DateTime @default(now())
+
+  @@index([userId])
+  @@map("evaluation_metrics_records")
+}
+
+model Recommendation {
+  id               String                        @id @default(uuid())
+  userId           String
+  policyId         String
+  rank             Int
+  status           RecommendationStatus          @default(ACTIVE)
+  lifecycleStatus  RecommendationLifecycleStatus @default(GENERATED)
+  utilityScore     Float                         @default(0.0)
+  versionNumber    Int                           @default(1)
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+
+  versions         RecommendationVersion[]
+  feedback         RecommendationFeedback[]
+
+  @@index([userId, status])
+  @@map("recommendations")
+}
+
+model RecommendationVersion {
+  id                String                           @id @default(uuid())
+  recommendationId  String
+  versionNumber     Int
+  rank              Int
+  utilityScore      Float
+  isCurrent         Boolean                          @default(true)
+  createdAt         DateTime                         @default(now())
+
+  recommendation    Recommendation                   @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  scoreBreakdown    RecommendationScoreBreakdown?
+  explanations      RecommendationExplanation[]
+  readiness         ApplicationReadiness?
+
+  @@unique([recommendationId, versionNumber])
+  @@map("recommendation_versions")
+}
+
+model RecommendationScoreBreakdown {
+  id                    String                @id @default(uuid())
+  versionId             String                @unique
+  benefitScore          Float
+  urgencyScore          Float
+  preferenceScore       Float
+  readinessScore        Float
+  difficultyScore       Float
+  deadlineBonus         Float
+  finalUtilityScore     Float
+
+  version               RecommendationVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("recommendation_score_breakdowns")
+}
+
+model RecommendationGenerationContext {
+  id                           String                 @id @default(uuid())
+  strategyId                   String                 @default("UTILITY_DEFAULT")
+  strategyVersion              String                 @default("1.0.0")
+  utilityWeightConfiguration   Json
+  rankingConfiguration         Json
+  preferenceProfileVersion     Int                    @default(1)
+  portfolioOptimizationVersion Int                    @default(1)
+  generationTimestamp          DateTime               @default(now())
+  generatorVersion             String                 @default("1.0.0")
+  configurationChecksum        String
+
+  snapshots                    RecommendationSnapshot[]
+
+  @@map("recommendation_generation_contexts")
+}
+
+model RecommendationSnapshot {
+  id                      String                           @id @default(uuid())
+  userId                  String
+  citizenSnapshotId       String
+  eligibilitySnapshotId   String
+  decisionTraceId         String
+  recommendationVersionId String
+  contextId               String
+  portfolioId             String
+  createdAt               DateTime                         @default(now())
+
+  eligibilitySnapshot     EligibilitySnapshot              @relation(fields: [eligibilitySnapshotId], references: [id])
+  context                 RecommendationGenerationContext  @relation(fields: [contextId], references: [id])
+  portfolio               RecommendationPortfolio          @relation(fields: [portfolioId], references: [id])
+
+  @@index([userId])
+  @@map("recommendation_snapshots")
+}
+
+model RecommendationPortfolio {
+  id                 String                      @id @default(uuid())
+  userId             String
+  snapshotId         String
+  totalMonetaryValue Float                       @default(0.0)
+  itemCount          Int                         @default(0)
+  createdAt          DateTime                    @default(now())
+
+  items              RecommendationPortfolioItem[]
+  snapshots          RecommendationSnapshot[]
+
+  @@index([userId])
+  @@map("recommendation_portfolios")
+}
+
+model RecommendationPortfolioItem {
+  id               String                  @id @default(uuid())
+  portfolioId      String
+  policyId         String
+  policyNumber     String
+  policyTitle      String
+  rank             Int
+  priority         RecommendationPriority  @default(MEDIUM)
+  utilityScore     Float
+
+  portfolio        RecommendationPortfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@map("recommendation_portfolio_items")
+}
+
+model RecommendationExplanation {
+  id                 String                @id @default(uuid())
+  versionId          String
+  policyId           String
+  rank               Int
+  primaryReason      String
+  contributingFactors Json
+  readinessNotice    String
+
+  version            RecommendationVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("recommendation_explanations")
+}
+
+model RecommendationDependency {
+  id                 String   @id @default(uuid())
+  sourcePolicyId     String
+  targetPolicyId     String
+  dependencyType     String   @default("REQUIRES")
+  createdAt          DateTime @default(now())
+
+  @@unique([sourcePolicyId, targetPolicyId, dependencyType])
+  @@map("recommendation_dependencies")
+}
+
+model RecommendationHistory {
+  id               String   @id @default(uuid())
+  userId           String
+  recommendationId String
+  action           String
+  details          Json?
+  createdAt        DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("recommendation_histories")
+}
+
+model RecommendationDifference {
+  id               String                   @id @default(uuid())
+  userId           String
+  changeType       RecommendationChangeType
+  policyId         String
+  policyTitle      String
+  oldRank          Int?
+  newRank          Int?
+  oldUtilityScore  Float?
+  newUtilityScore  Float?
+  details          String
+  createdAt        DateTime                 @default(now())
+
+  @@index([userId, createdAt])
+  @@map("recommendation_differences")
+}
+
+model RecommendationAnalytics {
+  id                                 String   @id @default(uuid())
+  userId                             String
+  rankingTimeMs                      Int      @default(0)
+  portfolioOptimizationTimeMs        Int      @default(0)
+  explanationGenerationTimeMs        Int      @default(0)
+  snapshotCreationTimeMs             Int      @default(0)
+  recommendationDiffTimeMs           Int      @default(0)
+  averageRecommendationScore         Float    @default(0.0)
+  averageBenefitValue                Float    @default(0.0)
+  averageApplicationReadinessPercent Float    @default(0.0)
+  averagePortfolioSize               Float    @default(0.0)
+  topRecommendedSchemes              Json
+  recommendationFailureRate          Float    @default(0.0)
+  createdAt                          DateTime @default(now())
+
+  @@index([userId])
+  @@map("recommendation_analytics")
+}
+
+model RecommendationPreference {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  preferredCategories     Json
+  maxDifficultyTolerance Int      @default(3)
+  prioritizeMonetaryValue Boolean  @default(true)
+  prioritizeUrgency       Boolean  @default(true)
+  version                 Int      @default(1)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([userId])
+  @@map("recommendation_preferences")
+}
+
+model RecommendationUtilityScore {
+  id               String   @id @default(uuid())
+  policyId         String
+  baseMonetaryScore Float   @default(0.0)
+  difficultyPenalty Float   @default(0.0)
+  urgencyBonus     Float    @default(0.0)
+  computedUtility  Float    @default(0.0)
+  updatedAt        DateTime @updatedAt
+
+  @@map("recommendation_utility_scores")
+}
+
+model ApplicationReadiness {
+  id                       String                     @id @default(uuid())
+  versionId                String                     @unique
+  status                   ApplicationReadinessStatus @default(NOT_READY)
+  completionPercentage     Float                      @default(0.0)
+  missingFacts             Json
+  missingDocuments         Json
+  verificationGaps         Json
+  expiredEvidence          Json
+  missingOnboardingAnswers Json
+  createdAt                DateTime                   @default(now())
+
+  version                  RecommendationVersion      @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("application_readiness")
+}
+
+model RecommendationFeedback {
+  id               String                       @id @default(uuid())
+  recommendationId String
+  userId           String
+  action           RecommendationFeedbackAction @default(VIEWED)
+  metadata         Json?
+  createdAt        DateTime                     @default(now())
+
+  recommendation   Recommendation               @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recommendationId])
+  @@map("recommendation_feedbacks")
+}
+
+model RecommendationEvent {
+  id          String   @id @default(uuid())
+  userId      String
+  eventType   String
+  aggregateId String
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, eventType])
+  @@map("recommendation_events")
+}
+
+// ==========================================
+// SPRINT 7: APPLICATION JOURNEY & ACTION PLANNING ENGINE
+// ==========================================
+
+enum ApplicationJourneyStatus {
+  CREATED
+  PLANNED
+  READY
+  IN_PROGRESS
+  WAITING_FOR_DOCUMENTS
+  WAITING_FOR_VERIFICATION
+  READY_TO_SUBMIT
+  SUBMITTED
+  UNDER_REVIEW
+  ADDITIONAL_INFORMATION_REQUIRED
+  APPROVED
+  REJECTED
+  BENEFIT_RECEIVED
+  CLOSED
+  ARCHIVED
+}
+
+enum JourneyStepStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  READY
+  COMPLETED
+  SKIPPED
+}
+
+enum ChecklistStatus {
+  PENDING
+  PARTIALLY_MET
+  COMPLETED
+  EXPIRED
+}
+
+enum DocumentRequirementStatus {
+  REQUIRED
+  PROVIDED
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum JourneyUrgency {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TimelineEventType {
+  RECOMMENDATION_GENERATED
+  JOURNEY_CREATED
+  CHECKLIST_GENERATED
+  DOCUMENT_ADDED
+  VERIFICATION_COMPLETE
+  APPLICATION_SUBMITTED
+  STATUS_UPDATED
+  APPROVED
+  REJECTED
+}
+
+enum JourneyDependencyType {
+  REQUIRES
+  BLOCKS
+  OPTIONAL
+  PARALLEL
+}
+
+enum JourneyProgressType {
+  OVERALL
+  CATEGORY
+  STEP
+  DEPENDENCY
+  DOCUMENT
+  VERIFICATION
+}
+
+enum StepExecutionMode {
+  MANUAL
+  AUTOMATIC
+}
+
+enum StepOwner {
+  CITIZEN
+  GOVERNMENT_OFFICER
+  EXTERNAL_AGENCY
+}
+
+enum StepBlockingBehavior {
+  BLOCKING
+  NON_BLOCKING
+  WARNING_ONLY
+}
+
+model JourneyBlueprint {
+  id                String   @id @default(uuid())
+  parentBlueprintId String?
+  policyId          String
+  policyTitle       String
+  version           Int      @default(1)
+  name              String
+  description       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  parentBlueprint   JourneyBlueprint?        @relation("BlueprintHierarchy", fields: [parentBlueprintId], references: [id])
+  childBlueprints    JourneyBlueprint[]       @relation("BlueprintHierarchy")
+  versions          JourneyBlueprintVersion[]
+  journeys          ApplicationJourney[]
+
+  @@index([policyId])
+  @@map("journey_blueprints")
+}
+
+model JourneyBlueprintVersion {
+  id                   String   @id @default(uuid())
+  blueprintId          String
+  version              Int
+  steps                Json
+  documentRequirements Json
+  createdAt            DateTime @default(now())
+
+  blueprint            JourneyBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+
+  @@index([blueprintId, version])
+  @@map("journey_blueprint_versions")
+}
+
+model ApplicationJourney {
+  id             String                   @id @default(uuid())
+  userId         String
+  policyId       String
+  policyTitle    String
+  blueprintId    String
+  status         ApplicationJourneyStatus @default(CREATED)
+  urgency        JourneyUrgency           @default(MEDIUM)
+  readinessScore Float                    @default(0.0)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blueprint      JourneyBlueprint         @relation(fields: [blueprintId], references: [id])
+  steps          ApplicationJourneyStep[]
+  checklist      ApplicationChecklist?
+  actionPlan     ActionPlan?
+  snapshots      JourneySnapshot[]
+  histories      JourneyHistory[]
+  timelines      JourneyTimeline[]
+  progresses     JourneyProgress[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("application_journeys")
+}
+
+model ApplicationJourneyStep {
+  id                   String               @id @default(uuid())
+  journeyId            String
+  stepCode             String
+  title                String
+  description          String
+  status               JourneyStepStatus    @default(NOT_STARTED)
+  order                Int                  @default(1)
+  isOptional           Boolean              @default(false)
+  executionMode        StepExecutionMode    @default(MANUAL)
+  owner                StepOwner            @default(CITIZEN)
+  retryLimit           Int                  @default(3)
+  retryIntervalMs      Int                  @default(60000)
+  blockingBehavior     StepBlockingBehavior @default(BLOCKING)
+  timeoutMs            Int                  @default(86400000)
+  requiresVerification Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  journey              ApplicationJourney   @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+
+  @@index([journeyId])
+  @@map("application_journey_steps")
+}
+
+model ApplicationStepDependency {
+  id             String                @id @default(uuid())
+  sourceStepId   String
+  targetStepId   String
+  dependencyType JourneyDependencyType @default(REQUIRES)
+
+  @@index([sourceStepId, targetStepId])
+  @@map("application_step_dependencies")
+}
+
+model ApplicationChecklist {
+  id        String                 @id @default(uuid())
+  journeyId String                 @unique
+  status    ChecklistStatus        @default(PENDING)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  journey   ApplicationJourney     @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  items     ChecklistItem[]
+
+  @@map("application_checklists")
+}
+
+model ChecklistItem {
+  id          String               @id @default(uuid())
+  checklistId String
+  itemKey     String
+  title       String
+  type        String               @default("FACT")
+  status      ChecklistStatus      @default(PENDING)
+  isMandatory Boolean              @default(true)
+  notes       String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  checklist   ApplicationChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  @@index([checklistId])
+  @@map("checklist_items")
+}
+
+model DocumentRequirement {
+  id                   String                    @id @default(uuid())
+  policyId             String
+  documentType         String
+  title                String
+  isMandatory          Boolean                   @default(true)
+  acceptedFormats      Json
+  maxAgeDays           Int?
+  maxSizeBytes         Int                       @default(5242880)
+  issuingAuthority     String
+  requiresVerification Boolean                   @default(true)
+  status               DocumentRequirementStatus @default(REQUIRED)
+  createdAt            DateTime                  @default(now())
+
+  @@index([policyId])
+  @@map("document_requirements")
+}
+
+model JourneyReadiness {
+  id                          String   @id @default(uuid())
+  journeyId                   String   @unique
+  score                       Float    @default(0.0)
+  citizenFactsPercentage      Float    @default(0.0)
+  documentsPercentage         Float    @default(0.0)
+  evidencePercentage          Float    @default(0.0)
+  verificationPercentage      Float    @default(0.0)
+  applicationStatusPercentage Float    @default(0.0)
+  dependencyPercentage        Float    @default(0.0)
+  missingItemsCount           Int      @default(0)
+  createdAt                   DateTime @default(now())
+
+  @@map("journey_readiness")
+}
+
+model ActionPlan {
+  id        String           @id @default(uuid())
+  journeyId String           @unique
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  journey   ApplicationJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  steps     ActionPlanStep[]
+
+  @@map("action_plans")
+}
+
+model ActionPlanStep {
+  id           String         @id @default(uuid())
+  actionPlanId String
+  timeframe    String         @default("TODAY")
+  stepTitle    String
+  instruction  String
+  priority     JourneyUrgency @default(MEDIUM)
+  isCompleted  Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+
+  actionPlan   ActionPlan     @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+
+  @@index([actionPlanId])
+  @@map("action_plan_steps")
+}
+
+model JourneySnapshot {
+  id                       String   @id @default(uuid())
+  journeyId                String
+  userId                   String
+  citizenSnapshotId        String
+  eligibilitySnapshotId    String
+  recommendationSnapshotId String
+  journeyVersion           Int      @default(1)
+  snapshotData             Json
+  createdAt                DateTime @default(now())
+
+  journey                  ApplicationJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+
+  @@index([journeyId])
+  @@index([userId])
+  @@map("journey_snapshots")
+}
+
+model JourneyHistory {
+  id        String   @id @default(uuid())
+  journeyId String
+  action    String
+  details   Json
+  createdAt DateTime @default(now())
+
+  journey   ApplicationJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+
+  @@index([journeyId])
+  @@map("journey_histories")
+}
+
+model JourneyTimeline {
+  id          String            @id @default(uuid())
+  journeyId   String
+  eventType   TimelineEventType @default(JOURNEY_CREATED)
+  description String
+  metadata    Json?
+  timestamp   DateTime          @default(now())
+
+  journey     ApplicationJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+
+  @@index([journeyId])
+  @@map("journey_timelines")
+}
+
+model JourneyProgress {
+  id          String              @id @default(uuid())
+  journeyId   String
+  type        JourneyProgressType @default(OVERALL)
+  percentage  Float               @default(0.0)
+  details     Json?
+  updatedAt   DateTime            @updatedAt
+
+  journey     ApplicationJourney  @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+
+  @@index([journeyId])
+  @@map("journey_progresses")
+}
+
+model JourneyDifference {
+  id         String   @id @default(uuid())
+  journeyId  String
+  changeType String
+  details    String
+  createdAt  DateTime @default(now())
+
+  @@index([journeyId])
+  @@map("journey_differences")
+}
+
+model JourneyAnalytics {
+  id                                 Int      @id @default(autoincrement())
+  userId                             String
+  averageJourneyDurationMs           Int      @default(0)
+  averageApprovalDurationMs          Int      @default(0)
+  averageStepDurationMs              Int      @default(0)
+  averageWaitingTimeMs               Int      @default(0)
+  averageVerificationTimeMs          Int      @default(0)
+  longestBlockingStepTitle           String   @default("")
+  deadlineMissRate                   Float    @default(0.0)
+  journeyReplayDurationMs            Int      @default(0)
+  snapshotCreationDurationMs         Int      @default(0)
+  blueprintReusePercent              Float    @default(0.0)
+  mostFailedStepTitle                String   @default("")
+  mostRepeatedStepTitle              String   @default("")
+  averageCitizenCompletionPercent    Float    @default(0.0)
+  averageGovernmentProcessingPercent Float    @default(0.0)
+  dependencyResolutionTimeMs         Int      @default(0)
+  createdAt                          DateTime @default(now())
+
+  @@index([userId])
+  @@map("journey_analytics")
+}
+
+model JourneyEvent {
+  id          String   @id @default(uuid())
+  userId      String
+  eventType   String
+  aggregateId String
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, eventType])
+  @@map("journey_events")
+}
+
+// ==========================================
+// Sprint 8 — Document Intelligence & Evidence Management Enums
+// ==========================================
+
+enum DocumentStatus {
+  UPLOADED
+  STORED
+  CLASSIFIED
+  QUALITY_CHECKED
+  OCR_PROCESSED
+  FACTS_EXTRACTED
+  VERIFICATION_PENDING
+  VERIFIED
+  ACTIVE
+  SUPERSEDED
+  ARCHIVED
+}
+
+enum DocumentType {
+  IDENTITY_PROOF
+  INCOME_CERTIFICATE
+  LAND_RECORD
+  CASTE_CERTIFICATE
+  BANK_PASSBOOK
+  RESIDENCE_PROOF
+  DISABILITY_CERTIFICATE
+  OTHER
+}
+
+enum DocumentQualityGrade {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  UNUSABLE
+}
+
+enum OCRReadiness {
+  READY
+  NEEDS_PREPROCESSING
+  UNUSABLE
+  SKIPPED
+}
+
+enum EvidenceStatus {
+  UNVERIFIED
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+}
+
+enum DocumentVerificationStatus {
+  PENDING
+  IN_PROGRESS
+  VERIFIED
+  REJECTED
+  EXPIRED
+  REQUIRES_MANUAL_REVIEW
+}
+
+enum ConflictStatus {
+  DETECTED
+  UNDER_REVIEW
+  RESOLVED
+  IGNORED
+}
+
+enum DocumentConfidenceLevel {
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+  CRITICAL
+}
+
+enum VerificationMethod {
+  CITIZEN_UPLOAD
+  GOVERNMENT_API
+  DIGILOCKER
+  MANUAL_OFFICER
+  OCR_AUTOMATED
+}
+
+enum DocumentSource {
+  CITIZEN_UPLOAD
+  DIGILOCKER
+  GOVERNMENT_PORTAL
+  OFFICER_UPLOAD
+}
+
+enum OCRStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum ConflictResolutionType {
+  ACCEPT_DOCUMENT
+  ACCEPT_CITIZEN_DECLARATION
+  MANUAL_OVERRIDE
+  SUPERSEDE
+}
+
+// ==========================================
+// Sprint 8 — Document Intelligence & Evidence Management Models
+// ==========================================
+
+model Document {
+  id             String         @id @default(uuid())
+  userId         String
+  fileName       String
+  fileSize       Int
+  mimeType       String
+  storageUrl     String
+  checksumSha256 String
+  documentType   DocumentType   @default(OTHER)
+  source         DocumentSource @default(CITIZEN_UPLOAD)
+  status         DocumentStatus @default(UPLOADED)
+  trustScore     Float          @default(0.0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  user             User                                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions         DocumentVersion[]
+  classification   DocumentIntelligenceClassification?
+  quality          DocumentQuality?
+  ocrJobs          OCRJob[]
+  extractedFacts   ExtractedFact[]
+  evidences        Evidence[]
+  verifications    Verification[]
+  conflicts        FactConflict[]
+  reconciliations  FactReconciliation[]
+  expiries         DocumentExpiry[]
+  checksumRecord   DocumentChecksum?
+
+  @@index([userId])
+  @@index([checksumSha256])
+  @@index([status])
+  @@index([documentType])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id             String   @id @default(uuid())
+  documentId     String
+  version        Int      @default(1)
+  fileName       String
+  fileSize       Int
+  storageUrl     String
+  checksumSha256 String
+  createdAt      DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, version])
+  @@map("document_versions")
+}
+
+model DocumentAlias {
+  id                 String   @id @default(uuid())
+  originalDocumentId String
+  aliasDocumentId   String
+  checksumSha256     String
+  createdAt          DateTime @default(now())
+
+  @@index([originalDocumentId])
+  @@index([checksumSha256])
+  @@map("document_aliases")
+}
+
+model DocumentIntelligenceClassification {
+  id                       String       @id @default(uuid())
+  documentId               String       @unique
+  documentCategory         DocumentType @default(OTHER)
+  detectedLanguage         String       @default("en")
+  pageOrientation          String       @default("PORTRAIT")
+  layoutType               String       @default("SINGLE_PAGE")
+  ocrTemplateId            String?
+  isOcrRequired            Boolean      @default(true)
+  isEncrypted              Boolean      @default(false)
+  isSupported              Boolean      @default(true)
+  classificationConfidence Float        @default(1.0)
+  createdAt                DateTime     @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_classifications")
+}
+
+model DocumentQuality {
+  id               String               @id @default(uuid())
+  documentId       String               @unique
+  qualityScore     Float                @default(100.0)
+  qualityGrade     DocumentQualityGrade @default(EXCELLENT)
+  ocrReadiness     OCRReadiness         @default(READY)
+  resolutionDpi    Int                  @default(300)
+  isBlurred        Boolean              @default(false)
+  noiseLevel       String               @default("LOW")
+  contrastScore    Float                @default(1.0)
+  issues           Json?
+  recommendedFixes Json?
+  createdAt        DateTime             @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_qualities")
+}
+
+model OCRJob {
+  id                String    @id @default(uuid())
+  documentId        String
+  status            OCRStatus @default(QUEUED)
+  totalBlocks       Int       @default(0)
+  averageConfidence Float     @default(0.0)
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  document Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  blocks   OCRBlock[]
+
+  @@index([documentId])
+  @@map("ocr_jobs")
+}
+
+model OCRBlock {
+  id           String @id @default(uuid())
+  ocrJobId     String
+  blockType    String
+  text         String
+  confidence   Float  @default(1.0)
+  boundingPoly Json?
+
+  ocrJob OCRJob @relation(fields: [ocrJobId], references: [id], onDelete: Cascade)
+
+  @@index([ocrJobId])
+  @@map("ocr_blocks")
+}
+
+model ExtractedFact {
+  id             String   @id @default(uuid())
+  documentId     String
+  factKey        String
+  extractedValue Json
+  rawText        String
+  confidence     Float    @default(1.0)
+  createdAt      DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, factKey])
+  @@map("extracted_facts")
+}
+
+model Evidence {
+  id         String         @id @default(uuid())
+  documentId String
+  userId     String
+  factKey    String
+  factValue  Json
+  status     EvidenceStatus @default(UNVERIFIED)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  document   Document             @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versions   EvidenceVersion[]
+  trustScore EvidenceTrustScore?
+  graphs     EvidenceGraph[]
+
+  @@index([documentId])
+  @@index([userId, factKey])
+  @@map("evidences")
+}
+
+model EvidenceVersion {
+  id         String         @id @default(uuid())
+  evidenceId String
+  version    Int            @default(1)
+  factKey    String
+  factValue  Json
+  status     EvidenceStatus @default(UNVERIFIED)
+  createdAt  DateTime       @default(now())
+
+  evidence Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@index([evidenceId, version])
+  @@map("evidence_versions")
+}
+
+model EvidenceTrustScore {
+  id                       String                  @id @default(uuid())
+  evidenceId               String                  @unique
+  trustScore               Float                   @default(100.0)
+  documentAgeDays          Int                     @default(0)
+  verificationMethodWeight Float                   @default(1.0)
+  governmentSourceWeight   Float                   @default(1.0)
+  manualVerificationBonus  Float                   @default(0.0)
+  ocrQualityScore          Float                   @default(100.0)
+  documentQualityScore     Float                   @default(100.0)
+  extractionConfidence     Float                   @default(100.0)
+  conflictHistoryPenalty   Float                   @default(0.0)
+  confidenceLevel          DocumentConfidenceLevel @default(HIGH)
+  createdAt                DateTime                @default(now())
+
+  evidence Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@map("evidence_trust_scores")
+}
+
+model Verification {
+  id          String                     @id @default(uuid())
+  documentId  String
+  userId      String
+  status      DocumentVerificationStatus @default(PENDING)
+  method      VerificationMethod         @default(CITIZEN_UPLOAD)
+  verifiedBy  String                     @default("SYSTEM")
+  verifiedAt  DateTime?
+  notes       String?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+
+  document Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  steps    VerificationStep[]
+
+  @@index([documentId])
+  @@index([userId, status])
+  @@map("verifications")
+}
+
+model VerificationStep {
+  id             String   @id @default(uuid())
+  verificationId String
+  stepName       String
+  actorName      String
+  status         String
+  details        Json?
+  createdAt      DateTime @default(now())
+
+  verification Verification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@index([verificationId])
+  @@map("verification_steps")
+}
+
+model VerificationActor {
+  id        String   @id @default(uuid())
+  actorCode String   @unique
+  name      String
+  actorType String   @default("SYSTEM")
+  trustRate Float    @default(1.0)
+  createdAt DateTime @default(now())
+
+  @@map("verification_actors")
+}
+
+model FactConflict {
+  id             String         @id @default(uuid())
+  documentId     String
+  userId         String
+  factKey        String
+  declaredValue  Json
+  extractedValue Json
+  status         ConflictStatus @default(DETECTED)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  document        Document             @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  reconciliations FactReconciliation[]
+
+  @@index([documentId])
+  @@index([userId, factKey])
+  @@map("fact_conflicts")
+}
+
+model FactReconciliation {
+  id             String                 @id @default(uuid())
+  conflictId     String
+  documentId     String
+  userId         String
+  factKey        String
+  resolutionType ConflictResolutionType @default(ACCEPT_DOCUMENT)
+  finalValue     Json
+  reconciledBy   String                 @default("SYSTEM")
+  reconciledAt   DateTime               @default(now())
+
+  conflict FactConflict @relation(fields: [conflictId], references: [id], onDelete: Cascade)
+  document Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([conflictId])
+  @@index([documentId])
+  @@map("fact_reconciliations")
+}
+
+model DocumentChecksum {
+  id             String   @id @default(uuid())
+  documentId     String   @unique
+  checksumSha256 String   @unique
+  fileSize       Int
+  createdAt      DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_checksums")
+}
+
+model DocumentExpiry {
+  id            String    @id @default(uuid())
+  documentId    String
+  documentType  String
+  issueDate     DateTime?
+  expiryDate    DateTime?
+  daysRemaining Int?
+  status        String    @default("VALID")
+  createdAt     DateTime  @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("document_expiries")
+}
+
+model EvidenceGraph {
+  id               String   @id @default(uuid())
+  evidenceId       String
+  factKey          String
+  documentId       String
+  ocrBlockId       String?
+  originalFileName String
+  provenanceChain  Json
+  createdAt        DateTime @default(now())
+
+  evidence Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@index([evidenceId])
+  @@map("evidence_graphs")
+}
+
+model OCRTemplate {
+  id           String   @id @default(uuid())
+  templateCode String   @unique
+  name         String
+  documentType String
+  rulesJson    Json
+  createdAt    DateTime @default(now())
+
+  @@map("ocr_templates")
+}
+
+model DocumentAnalytics {
+  id                          Int      @id @default(autoincrement())
+  userId                      String
+  totalDocumentsUploaded      Int      @default(0)
+  totalVerifiedDocuments      Int      @default(0)
+  totalConflictedDocuments    Int      @default(0)
+  averageQualityScore         Float    @default(100.0)
+  averageTrustScore           Float    @default(100.0)
+  averageOcrConfidence        Float    @default(100.0)
+  deduplicationSavingsCount   Int      @default(0)
+  mostUploadedDocumentType    String   @default("OTHER")
+  createdAt                   DateTime @default(now())
+
+  @@index([userId])
+  @@map("document_analytics")
+}
+
+model DocumentEvent {
+  id          String   @id @default(uuid())
+  userId      String
+  eventType   String
+  aggregateId String
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, eventType])
+  @@map("document_events")
+}
+
+// ==========================================
+// Sprint 9 — Citizen Knowledge Profile & Adaptive Onboarding Models
+// ==========================================
+
+model CitizenFactVersion {
+  id                     String      @id @default(uuid())
+  factId                 String
+  version                Int
+  previousValue          Json?
+  newValue               Json?
+  source                 String      @default("SELF_DECLARED")
+  sourcePrecedence       Int         @default(5)
+  provenance             Json?
+  verificationStatus     String      @default("SELF_DECLARED")
+  freshnessPolicyVersion Int         @default(1)
+  effectiveFrom          DateTime    @default(now())
+  effectiveTo            DateTime?
+  changeReason           String?
+  changedBy              String
+  correlationId          String?
+  createdAt              DateTime    @default(now())
+
+  fact                   CitizenFact @relation(fields: [factId], references: [id], onDelete: Cascade)
+
+  @@index([factId, version])
+  @@map("citizen_fact_versions")
+}
+
+model FactProvenance {
+  id                 String      @id @default(uuid())
+  factId             String
+  sourceType         String
+  sourceReferenceId String?
+  documentId         String?
+  evidenceId         String?
+  actorId            String?
+  verificationMethod String?
+  metadata           Json?
+  createdAt          DateTime    @default(now())
+
+  fact               CitizenFact @relation(fields: [factId], references: [id], onDelete: Cascade)
+
+  @@index([factId])
+  @@map("fact_provenances")
+}
+
+model FactFreshnessPolicy {
+  id                  String   @id @default(uuid())
+  attributeKey        String
+  category            String
+  expiryDurationDays  Int      @default(365)
+  warningWindowDays   Int      @default(30)
+  version             Int      @default(1)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  @@unique([attributeKey, version])
+  @@map("fact_freshness_policies")
+}
+
+model OnboardingQuestion {
+  id                  String                      @id @default(uuid())
+  questionCode        String                      @unique
+  attributeKey        String
+  priority            Int                         @default(100)
+  displayOrder        Int                         @default(0)
+  isActive            Boolean                     @default(true)
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  versions            OnboardingQuestionVersion[]
+
+  @@index([attributeKey])
+  @@map("onboarding_questions")
+}
+
+model OnboardingQuestionVersion {
+  id                  String             @id @default(uuid())
+  questionId          String
+  version             Int                @default(1)
+  questionText        String
+  helpText            String?
+  inputType           QuestionInputType  @default(TEXT)
+  isRequired          Boolean            @default(true)
+  explanationTemplate String             @default("Required for profile completion.")
+  scoringWeights      Json?
+  createdAt           DateTime           @default(now())
+
+  question            OnboardingQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  options             QuestionOption[]
+  dependencies        QuestionDependency[]
+  answers             OnboardingAnswer[]
+
+  @@unique([questionId, version])
+  @@map("onboarding_question_versions")
+}
+
+model QuestionOption {
+  id                  String                    @id @default(uuid())
+  questionVersionId   String
+  optionCode          String
+  label               String
+  value               Json
+  displayOrder        Int                       @default(0)
+  metadata            Json?
+  createdAt           DateTime                  @default(now())
+
+  questionVersion     OnboardingQuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+
+  @@index([questionVersionId])
+  @@map("question_options")
+}
+
+model QuestionDependency {
+  id                   String                    @id @default(uuid())
+  dependentQuestionId String
+  parentQuestionId    String
+  parentAttributeKey   String
+  operator             String                    @default("EQUALS")
+  expectedValue        Json
+  createdAt            DateTime                  @default(now())
+
+  dependentQuestion    OnboardingQuestionVersion @relation(fields: [dependentQuestionId], references: [id], onDelete: Cascade)
+
+  @@index([dependentQuestionId])
+  @@index([parentQuestionId])
+  @@map("question_dependencies")
+}
+
+model OnboardingAnswer {
+  id                  String                    @id @default(uuid())
+  userId              String
+  sessionId           String
+  questionId          String
+  questionVersionId   String
+  attributeKey        String
+  answerValue         Json
+  idempotencyKey      String
+  version             Int                       @default(1)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  questionVersion     OnboardingQuestionVersion @relation(fields: [questionVersionId], references: [id])
+  versions            OnboardingAnswerVersion[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([sessionId])
+  @@index([userId, attributeKey])
+  @@map("onboarding_answers")
+}
+
+model OnboardingAnswerVersion {
+  id            String           @id @default(uuid())
+  answerId      String
+  version       Int
+  previousValue Json?
+  newValue      Json
+  changedBy     String
+  createdAt     DateTime         @default(now())
+
+  answer        OnboardingAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+
+  @@index([answerId, version])
+  @@map("onboarding_answer_versions")
+}
+
+model ProfileSnapshot {
+  id                                    String   @id @default(uuid())
+  profileId                             String
+  versionNumber                         Int
+  facts                                 Json
+  factVersions                          Json
+  sourcePrecedencePolicyVersion        Int      @default(1)
+  freshnessPolicyVersions               Json
+  completenessConfigurationVersion      Int      @default(1)
+  questionCatalogVersion                Int      @default(1)
+  prioritizationConfigurationVersion    Int      @default(1)
+  checksumSha256                        String
+  createdAt                             DateTime @default(now())
+
+  profile                               CitizenProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, versionNumber])
+  @@map("profile_snapshots")
+}
+
+model ProfileChange {
+  id                                    String   @id @default(uuid())
+  userId                                String
+  changedFactKey                        String
+  previousValue                         Json?
+  newValue                              Json?
+  eligibilityReEvaluationRequired       Boolean  @default(false)
+  recommendationRecalculationRequired   Boolean  @default(false)
+  journeyRevalidationRequired          Boolean  @default(false)
+  documentReverificationRequired        Boolean  @default(false)
+  noDownstreamImpact                    Boolean  @default(false)
+  impactReason                          String
+  triggerFactValue                      Json?
+  affectedDomains                       Json
+  configurationVersion                  Int      @default(1)
+  correlationId                         String
+  createdAt                             DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("profile_changes")
+}
+
+model QuestionExplanation {
+  id                            String   @id @default(uuid())
+  questionId                    String
+  questionCode                  String
+  explanation                   String
+  requiredForSchemes            Json
+  unlockedRecommendations       Json
+  missingPrerequisiteForJourneys Json
+  createdAt                     DateTime @default(now())
+
+  @@index([questionId])
+  @@map("question_explanations")
+}
+
+model ProfileAnalytics {
+  id                            Int      @id @default(autoincrement())
+  userId                        String
+  onboardingCompletionRate      Float    @default(0.0)
+  averageOnboardingDurationSec  Float    @default(0.0)
+  questionAbandonmentRate       Float    @default(0.0)
+  averageQuestionsPerCitizen    Float    @default(0.0)
+  questionSkipRate              Float    @default(0.0)
+  profileCompletenessPercentage Float    @default(0.0)
+  factAcquisitionRate           Float    @default(0.0)
+  staleFactRate                 Float    @default(0.0)
+  conflictRate                  Float    @default(0.0)
+  verificationCoverage          Float    @default(0.0)
+  createdAt                     DateTime @default(now())
+
+  @@index([userId])
+  @@map("profile_analytics")
+}
+
+model OnboardingEvent {
+  id            String   @id @default(uuid())
+  eventId       String   @unique
+  eventType     String
+  eventVersion  String   @default("1.0")
+  aggregateId   String
+  aggregateType String   @default("ONBOARDING")
+  userId        String
+  correlationId String?
+  causationId   String?
+  payload       Json
+  occurredAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([userId, eventType])
+  @@map("onboarding_events")
+}
+
+model QuestionPrioritizationConfig {
+  id                            String   @id @default(uuid())
+  version                       Int      @default(1)
+  eligibilityRelevanceWeight   Float    @default(0.35)
+  recommendationUnlockWeight    Float    @default(0.25)
+  criticalFactImpactWeight      Float    @default(0.20)
+  downstreamDependencyWeight    Float    @default(0.15)
+  citizenEffortPenaltyWeight    Float    @default(0.05)
+  isActive                      Boolean  @default(true)
+  createdAt                     DateTime @default(now())
+
+  @@index([version])
+  @@map("question_prioritization_configs")
+}
+
+// ==========================================
+// Sprint 10 — Enterprise Fact Verification, Evidence Reconciliation & Citizen Truth Engine Models
+// ==========================================
+
+model FactVerificationPolicy {
+  id                                      String   @id @default(uuid())
+  attributeKey                            String
+  version                                 Int      @default(1)
+  acceptableSources                       Json
+  minimumTrustScore                       Float    @default(70.0)
+  freshnessExpiryDurationDays             Int      @default(365)
+  requireManualReviewForGovernmentExpired Boolean  @default(true)
+  requireManualReviewForConflicts         Boolean  @default(true)
+  checksumSha256                          String
+  isActive                                Boolean  @default(true)
+  createdAt                               DateTime @default(now())
+
+  @@unique([attributeKey, version])
+  @@map("fact_verification_policies")
+}
+
+model FactVerificationRun {
+  id                      String   @id @default(uuid())
+  userId                  String
+  factId                  String
+  attributeKey            String
+  policyId                String
+  policyVersion           Int
+  policyConfiguration     Json
+  policyChecksumSha256    String
+  idempotencyKey          String
+  status                  String   @default("RUNNING")
+  version                 Int      @default(1)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, factId])
+  @@map("fact_verification_runs")
+}
+
+model FactVerificationResolution {
+  id                      String   @id @default(uuid())
+  verificationRunId       String
+  factId                  String
+  attributeKey            String
+  winningValue            Json
+  winningSource           String
+  winningSourcePrecedence Int
+  losingValues            Json
+  strategy                String
+  resolutionReason        String
+  policyId                String
+  policyVersion           Int
+  policyChecksumSha256    String
+  resolvedBy              String
+  createdAt               DateTime @default(now())
+
+  @@index([factId, verificationRunId])
+  @@map("fact_verification_resolutions")
+}
+
+model FactVerificationReview {
+  id                      String   @id @default(uuid())
+  conflictId              String
+  citizenId               String
+  attributeKey            String
+  priority                Int      @default(100)
+  reason                  String
+  requiredEvidenceTypes   Json
+  assignedReviewerId      String?
+  status                  String   @default("PENDING")
+  slaDeadline             DateTime
+  reviewerDecision        String?
+  version                 Int      @default(1)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([citizenId, status])
+  @@index([assignedReviewerId])
+  @@map("fact_verification_reviews")
+}
+
+model FactVerificationSnapshot {
+  id                      String   @id @default(uuid())
+  verificationRunId       String
+  citizenId               String
+  factId                  String
+  canonicalValue          Json
+  canonicalSource         String
+  freshnessStatus         String
+  policyId                String
+  policyVersion           Int
+  policyConfiguration     Json
+  policyChecksumSha256    String
+  checksumSha256          String
+  createdAt               DateTime @default(now())
+
+  @@index([citizenId, factId])
+  @@map("fact_verification_snapshots")
+}
+
+model FactVerificationEvent {
+  id            String   @id @default(uuid())
+  eventId       String   @unique
+  eventType     String
+  eventVersion  String   @default("1.0")
+  aggregateId   String
+  userId        String
+  correlationId String?
+  causationId   String?
+  payload       Json
+  status        String   @default("PENDING")
+  retryCount    Int      @default(0)
+  occurredAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([userId, eventType])
+  @@map("fact_verification_events")
+}
+
+model FactVerificationAnalytics {
+  id                         Int      @id @default(autoincrement())
+  userId                     String
+  verificationSuccessRate   Float    @default(0.0)
+  conflictRate               Float    @default(0.0)
+  manualReviewRate           Float    @default(0.0)
+  averageResolutionTimeSec   Float    @default(0.0)
+  staleFactRate              Float    @default(0.0)
+  trustScoreAverage          Float    @default(0.0)
+  createdAt                  DateTime @default(now())
+
+  @@index([userId])
+  @@map("fact_verification_analytics")
+}
+
+// ==========================================
+// Sprint 11 — Enterprise Continuous Decision Re-evaluation, Impact Propagation & Policy Change Intelligence Platform Models
+// ==========================================
+
+model DecisionReEvaluation {
+  id                            String    @id @default(uuid())
+  userId                        String
+  triggerType                   String
+  triggerEntityId               String
+  triggerEntityVersion          Int
+  sourceEventId                 String
+  status                        String    @default("PENDING")
+  priority                      Int       @default(100)
+  leaseOwner                    String?
+  leaseExpiresAt                DateTime?
+  retryCount                    Int       @default(0)
+  maxRetries                    Int       @default(3)
+  rootEventId                   String
+  correlationId                 String
+  causationId                   String?
+  propagationDepth              Int       @default(1)
+  idempotencyKey                String
+  dependencyFingerprintSha256   String
+  configurationVersion          Int       @default(1)
+  configurationChecksumSha256    String
+  failureReason                 String?
+  startedAt                     DateTime?
+  completedAt                   DateTime?
+  version                       Int       @default(1)
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([status, leaseExpiresAt])
+  @@index([userId, status])
+  @@map("decision_re_evaluations")
+}
+
+model DecisionImpact {
+  id                          String   @id @default(uuid())
+  reEvaluationId              String
+  userId                      String
+  targetType                  String
+  targetEntityId              String
+  impactType                  String
+  severity                    String   @default("MEDIUM")
+  sourceFactId                String?
+  sourceFactVersion           Int?
+  sourceEventId               String
+  oldDependencyVersion        Int?
+  newDependencyVersion        Int?
+  dependencyFingerprintSha256 String
+  reason                      String
+  requiresReEvaluation        Boolean  @default(true)
+  isEvaluated                 Boolean  @default(false)
+  createdAt                   DateTime @default(now())
+
+  @@unique([sourceEventId, targetType, targetEntityId])
+  @@index([reEvaluationId, targetType])
+  @@map("decision_impacts")
+}
+
+model DecisionReEvaluationStep {
+  id                          String    @id @default(uuid())
+  reEvaluationId              String
+  stepType                    String
+  executionOrder              Int
+  status                      String    @default("PENDING")
+  startedAt                   DateTime?
+  completedAt                 DateTime?
+  inputSnapshotId             String?
+  outputSnapshotId            String?
+  dependencyFingerprintSha256 String
+  error                       String?
+  retryCount                  Int       @default(0)
+  createdAt                   DateTime  @default(now())
+
+  @@unique([reEvaluationId, executionOrder])
+  @@map("decision_re_evaluation_steps")
+}
+
+model DecisionStateSnapshot {
+  id                          String   @id @default(uuid())
+  reEvaluationId              String
+  userId                      String
+  targetType                  String
+  targetEntityId              String
+  snapshotType                String   // BEFORE | AFTER
+  snapshotData                Json
+  dependencyVersions          Json
+  dependencyFingerprintSha256 String
+  policyVersions              Json
+  checksumSha256              String
+  createdAt                   DateTime @default(now())
+
+  @@index([userId, targetType, targetEntityId])
+  @@map("decision_state_snapshots")
+}
+
+model DecisionDiff {
+  id                                     String   @id @default(uuid())
+  reEvaluationId                         String
+  userId                                 String
+  targetType                             String
+  targetEntityId                         String
+  changeType                             String
+  changedFields                          Json
+  previousState                          Json
+  newState                               Json
+  isMaterial                             Boolean  @default(false)
+  materialityReason                      String
+  materialityRuleVersion                 Int      @default(1)
+  materialityConfigurationChecksumSha256 String
+  dependencyFingerprintSha256            String
+  checksumSha256                         String
+  createdAt                              DateTime @default(now())
+
+  @@index([reEvaluationId, targetType])
+  @@map("decision_diffs")
+}
+
+model StaleState {
+  id                          String    @id @default(uuid())
+  userId                      String
+  targetType                  String
+  targetEntityId              String
+  dependencyId                String
+  oldDependencyVersion        Int
+  currentDependencyVersion    Int
+  dependencyFingerprintSha256 String
+  staleReason                 String
+  status                      String    @default("STALE") // STALE | CLEARED
+  reEvaluationId              String?
+  staleAt                     DateTime  @default(now())
+  clearedAt                   DateTime?
+  version                     Int       @default(1)
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  @@unique([userId, targetType, targetEntityId])
+  @@map("stale_states")
+}
+
+model PolicyVersionActivation {
+  id                           String   @id @default(uuid())
+  policyId                     String
+  policyTitle                  String
+  version                      Int
+  activationReason             String
+  checksumSha256               String
+  affectedFacts                Json
+  affectedRules                Json
+  affectedAttributeKeys        Json
+  discoveredPopulationCount    Int      @default(0)
+  populationSelectionChecksum  String
+  activatedBy                  String
+  activatedAt                  DateTime @default(now())
+  createdAt                    DateTime @default(now())
+
+  @@unique([policyId, version])
+  @@map("policy_version_activations")
+}
+
+// ==========================================
+// Sprint 12 — Enterprise Citizen Communication & Action Center Models
+// ==========================================
+
+model Notification {
+  id                            String    @id @default(uuid())
+  userId                        String
+  notificationType              String
+  title                         String
+  body                          String
+  priority                      String    @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status                        String    @default("CREATED") // CREATED | RENDERED | QUEUED | PARTIALLY_DELIVERED | DELIVERED | READ | FAILED | SUPPRESSED | SUPERSEDED | EXPIRED
+  actionItemId                  String?
+  sourceReEvaluationId          String
+  sourceDecisionDiffId          String
+  sourceEventId                 String
+  templateId                    String
+  templateVersion               Int
+  policyId                      String
+  policyVersion                 Int
+  policyChecksumSha256          String
+  dependencyFingerprintSha256   String
+  checksumSha256                String
+  supersededByNotificationId   String?
+  idempotencyKey                String
+  // DEF-003 FIX: Persists original template parameters to support deterministic replay
+  templateParameters            Json?
+  readAt                        DateTime?
+  version                       Int       @default(1)
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+
+  deliveries                    NotificationDelivery[]
+  attempts                      NotificationDeliveryAttempt[]
+
+  @@unique([userId, idempotencyKey])
+  @@unique([sourceEventId, notificationType, userId])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([sourceDecisionDiffId])
+  @@index([sourceReEvaluationId])
+  @@map("notifications")
+}
+
+model NotificationDelivery {
+  id                      String    @id @default(uuid())
+  notificationId          String
+  userId                  String
+  channel                 String    // IN_APP | EMAIL | SMS | PUSH
+  status                  String    @default("PENDING") // PENDING | LEASED | PROCESSING | SUCCEEDED | RETRY_SCHEDULED | PERMANENT_FAILURE | CANCELLED
+  providerName            String?
+  deliveryIdempotencyKey  String
+  scheduledAt             DateTime  @default(now())
+  deliveredAt             DateTime?
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  retryCount              Int       @default(0)
+  maxRetries              Int       @default(5)
+  // DEF-006 FIX: Persists next eligible retry time for exponential backoff scheduling
+  nextRetryAt             DateTime?  // null = no retry scheduled; future = do not process before this time
+  failureReason           String?
+  failureCategory         String?   // TRANSIENT | PERMANENT | RATE_LIMITED | INVALID_DESTINATION | PROVIDER_UNAVAILABLE | AUTHENTICATION_FAILURE | POLICY_REJECTED
+  version                 Int       @default(1)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  notification            Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  attempts                NotificationDeliveryAttempt[]
+
+  @@unique([notificationId, channel])
+  @@unique([deliveryIdempotencyKey])
+  // Updated index includes nextRetryAt for efficient worker polling of eligible retries
+  @@index([status, scheduledAt, leaseExpiresAt, nextRetryAt])
+  @@index([userId, channel])
+  @@map("notification_deliveries")
+}
+
+model NotificationDeliveryAttempt {
+  id                      String    @id @default(uuid())
+  deliveryId              String
+  notificationId          String
+  channel                 String
+  providerName            String
+  status                  String    // PENDING | PROCESSING | SUCCEEDED | FAILED | RETRY_SCHEDULED | DEAD_LETTERED | CANCELLED
+  attemptNumber           Int
+  errorMessage            String?
+  errorCode               String?
+  failureCategory         String?
+  durationMs              Int
+  providerMessageId       String?
+  requestPayloadSanitized  Json?
+  responsePayloadSanitized Json?
+  createdAt               DateTime  @default(now())
+
+  delivery                NotificationDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  notification            Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId])
+  @@index([notificationId, channel])
+  @@map("notification_delivery_attempts")
+}
+
+model CitizenActionItem {
+  id                      String    @id @default(uuid())
+  userId                  String
+  actionType              String    // REVIEW_ELIGIBILITY | REVIEW_RECOMMENDATION | UPLOAD_EVIDENCE | COMPLETE_ONBOARDING | COMPLETE_PREREQUISITE | ACKNOWLEDGE_POLICY_CHANGE
+  title                   String
+  description             String
+  status                  String    @default("PENDING") // PENDING | VIEWED | ACKNOWLEDGED | ACTION_REQUIRED | COMPLETED | DISMISSAL_REQUESTED | DISMISSED | EXPIRED | SUPERSEDED
+  priority                String    @default("MEDIUM")
+  targetUrl               String
+  deadline                DateTime?
+  sourceEntityId          String
+  idempotencyKey          String
+  version                 Int       @default(1)
+  completedAt             DateTime?
+  dismissedAt             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, status])
+  @@index([userId, deadline])
+  @@index([sourceEntityId])
+  @@map("citizen_action_items")
+}
+
+model NotificationTemplateVersion {
+  id                      String    @id @default(uuid())
+  templateId              String
+  version                 Int
+  locale                  String    @default("en-IN")
+  titleTemplate           String
+  bodyTemplate            String
+  actionUrlTemplate       String?
+  checksumSha256          String
+  createdBy               String
+  createdAt               DateTime  @default(now())
+
+  @@unique([templateId, version, locale])
+  @@map("notification_template_versions")
+}
+
+model NotificationPolicyVersion {
+  id                      String    @id @default(uuid())
+  policyId                String
+  version                 Int
+  minMaterialityLevel     String    @default("MEDIUM")
+  cooldownWindowSeconds   Int       @default(300)
+  maxPerWindow            Int       @default(3)
+  allowedChannels         Json
+  fallbackPrecedence      Json
+  checksumSha256          String
+  activatedBy             String
+  activatedAt             DateTime  @default(now())
+  createdAt               DateTime  @default(now())
+
+  @@unique([policyId, version])
+  @@map("notification_policy_versions")
+}
+
+model NotificationPreference {
+  id                      String    @id @default(uuid())
+  userId                  String
+  channel                 String    // IN_APP | EMAIL | SMS | PUSH
+  status                  String    @default("ENABLED") // ENABLED | DISABLED | NOT_CONFIGURED
+  quietHoursStart         String?   // HH:mm (e.g. "22:00")
+  quietHoursEnd           String?   // HH:mm (e.g. "07:00")
+  timezone                String    @default("Asia/Kolkata")
+  categoryOverrides       Json?
+  version                 Int       @default(1)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@unique([userId, channel])
+  @@map("notification_preferences")
+}
+
+model NotificationSuppression {
+  id                      String    @id @default(uuid())
+  userId                  String
+  sourceEventId           String
+  sourceDecisionDiffId    String
+  notificationType        String
+  suppressionReason       String    // COOLDOWN_ACTIVE | RATE_LIMIT_EXCEEDED | QUIET_HOURS_ACTIVE | CHANNEL_DISABLED | IMMATERIAL_CHANGE | SUPERSEDED
+  policyId                String
+  policyVersion           Int
+  policyChecksumSha256    String
+  originalEvaluationTime  DateTime  @default(now())
+  nextEligibleDeliveryTime DateTime?
+  createdAt               DateTime  @default(now())
+
+  @@index([userId, notificationType])
+  @@index([sourceDecisionDiffId])
+  @@map("notification_suppressions")
+}
+
+model NotificationOutbox {
+  id                      String    @id @default(uuid())
+  eventId                 String
+  eventType               String
+  payload                 Json
+  status                  String    @default("PENDING") // PENDING | LEASED | PROCESSED | FAILED
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  retryCount              Int       @default(0)
+  scheduledAt             DateTime  @default(now())
+  processedAt             DateTime?
+  errorMessage            String?
+  createdAt               DateTime  @default(now())
+
+  @@index([status, scheduledAt, leaseExpiresAt])
+  @@map("notification_outbox")
+}
+
+
+
+
+
+

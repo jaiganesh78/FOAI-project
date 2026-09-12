@@ -1,0 +1,12 @@
+# Sprint 12.2 Production Failure Matrix
+
+| Failure Mode | Trigger / Condition | Expected System Behavior | Actual System Behavior | Recovery / Mitigation | Severity | Verified |
+|---|---|---|---|---|---|---|
+| **FAIL-01** | Duplicate `decision.state_changed` event published by Sprint 11 | Persistent deduplication check (`UNIQUE([sourceEventId, notificationType, userId])`) prevents duplicate notification | Ingestion service skips processing with duplicate event log | None required; event ignored cleanly | Low | **PASS** |
+| **FAIL-02** | Outbound email provider returns HTTP 503 Service Unavailable | `NotificationOutboxService` catches error, classifies as `TRANSIENT`, updates status to `RETRY_SCHEDULED` | Delivery status set to `RETRY_SCHEDULED`; retry counter incremented | Retried automatically using exponential backoff schedule | Medium | **PASS** |
+| **FAIL-03** | Outbound provider returns HTTP 400 Invalid Destination | `NotificationOutboxService` classifies error as `INVALID_DESTINATION` | Delivery status transitioned directly to `PERMANENT_FAILURE`; attempt logged as `DEAD_LETTERED` | Operator review via analytics; infinite retry loop prevented | Medium | **PASS** |
+| **FAIL-04** | Outbox worker crashes during provider HTTP execution | Worker lease (`leaseExpiresAt = 30s`) expires after 30 seconds | Secondary outbox worker re-claims delivery intent cleanly | Re-executed using `deliveryIdempotencyKey` | High | **PASS** |
+| **FAIL-05** | Template placeholder missing during rendering | `NotificationRendererService` detects unresolved `{{placeholder}}` | Throws deterministic `BadRequestException`; prevents sending malformed text | Operator template configuration fix | High | **PASS** |
+| **FAIL-06** | Historical replay parameter or checksum tampered in DB | `NotificationReplayService` calculates SHA-256 hash over parameters + template version | Checksum mismatch detected; throws loud `BadRequestException` failure | Fails loudly without reading live mutable state | High | **PASS** |
+| **FAIL-07** | Concurrent citizen action item update with stale version | `ActionCenterService` validates `expectedVersion` against DB `version` | Throws `ConflictException` (409); prevents lost update | Citizen client refreshes latest version and retries | Medium | **PASS** |
+| **FAIL-08** | Citizen attempts access to another citizen's notification ID | Controller asserts `notif.userId === user.id` | Throws `ForbiddenException` (403); access blocked | Security boundary enforced | Critical | **PASS** |

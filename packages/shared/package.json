@@ -1,0 +1,22 @@
+{
+  "name": "@gpios/shared",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "npx -p typescript@5.7.3 tsc --build",
+    "clean": "rimraf dist *.tsbuildinfo",
+    "lint": "npx eslint \"src/**/*.ts\"",
+    "lint:fix": "npx eslint \"src/**/*.ts\" --fix",
+    "typecheck": "npx -p typescript@5.7.3 tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  }
+}

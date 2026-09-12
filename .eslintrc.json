@@ -1,0 +1,37 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "plugins": ["@typescript-eslint", "import"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "prettier"
+  ],
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "import/no-restricted-paths": [
+      "error",
+      {
+        "zones": [
+          {
+            "target": "./apps/backend/src/modules/citizen",
+            "from": "./apps/backend/src/modules/admin",
+            "message": "Illegal cross-module import: Citizen module cannot import directly from Admin module"
+          },
+          {
+            "target": "./apps/backend/src/modules/policy",
+            "from": "./apps/backend/src/modules/eligibility",
+            "message": "Illegal cross-module import: Policy module cannot depend on Eligibility internal modules directly"
+          }
+        ]
+      }
+    ]
+  }
+}
