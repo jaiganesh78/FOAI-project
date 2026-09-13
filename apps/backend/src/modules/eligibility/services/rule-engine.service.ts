@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { CompiledRuleTree, ExecutableRuleGroup, ExecutableRuleCondition } from './compiled-rule-cache.service';
-import { RuleOperator, LogicalGroupOperator } from '@gpios/shared';
+import { RuleOperator, LogicalGroupOperator, AttributeDataType } from '@gpios/shared';
+import { SEMANTIC_REGISTRY_SERVICE } from '../../../core/tokens/injection-tokens';
+import { SemanticRegistryService } from '../../../core/semantic/semantic-registry.service';
 
 export interface RuleEvaluationResult {
   ruleCode: string;
@@ -14,6 +16,16 @@ export interface RuleEvaluationResult {
 
 @Injectable()
 export class RuleEngineService {
+  private readonly semanticRegistry: SemanticRegistryService;
+
+  constructor(
+    @Optional()
+    @Inject(SEMANTIC_REGISTRY_SERVICE)
+    semanticRegistry?: SemanticRegistryService,
+  ) {
+    this.semanticRegistry = semanticRegistry || new SemanticRegistryService();
+  }
+
   evaluateRule(ruleTree: CompiledRuleTree, citizenFacts: Record<string, unknown>): RuleEvaluationResult {
     const logs: { conditionId: string; attributeKey: string; isPassed: boolean; actualValue: unknown }[] = [];
 
@@ -42,12 +54,12 @@ export class RuleEngineService {
     const conditionResults: boolean[] = [];
 
     for (const cond of group.conditions) {
-      const res = this.evaluateCondition(cond, facts);
+      const { isPassed: res, resolvedValue } = this.evaluateCondition(cond, facts);
       logs.push({
         conditionId: cond.id,
         attributeKey: cond.attributeKey,
         isPassed: res,
-        actualValue: facts[cond.attributeKey],
+        actualValue: resolvedValue,
       });
       conditionResults.push(res);
     }
@@ -74,33 +86,128 @@ export class RuleEngineService {
     }
   }
 
-  private evaluateCondition(cond: ExecutableRuleCondition, facts: Record<string, unknown>): boolean {
-    const actual = facts[cond.attributeKey];
-    const expected = cond.expectedValue;
+  private evaluateCondition(
+    cond: ExecutableRuleCondition,
+    facts: Record<string, unknown>,
+  ): { isPassed: boolean; resolvedValue: unknown } {
+    let rawActual = facts[cond.attributeKey];
 
-    if (actual === undefined || actual === null) {
-      return cond.operator === RuleOperator.NOT_EXISTS;
+    // Canonical / Legacy Bridge: If direct key lookup is undefined, resolve canonical <-> legacy mapping
+    const canonicalAttr = this.semanticRegistry.getCanonicalAttribute(cond.attributeKey);
+    if (rawActual === undefined && canonicalAttr) {
+      // 1. Try any registered legitimate legacyAttributeKeys
+      for (const legacyKey of canonicalAttr.legacyAttributeKeys) {
+        if (facts[legacyKey] !== undefined) {
+          rawActual = facts[legacyKey];
+          break;
+        }
+      }
+      // 2. Try canonical code if condition used a legacy key
+      if (rawActual === undefined && facts[canonicalAttr.code] !== undefined) {
+        rawActual = facts[canonicalAttr.code];
+      }
     }
 
-    switch (cond.operator) {
+    if (rawActual === undefined || rawActual === null) {
+      return {
+        isPassed: cond.operator === RuleOperator.NOT_EXISTS,
+        resolvedValue: null,
+      };
+    }
+
+    // Extract value and potential unit from structured fact (e.g. { value: 2.5, unit: 'ACRE' })
+    let actual: unknown = rawActual;
+    let actualUnit: string | undefined;
+
+    if (typeof rawActual === 'object' && rawActual !== null && !Array.isArray(rawActual)) {
+      const obj = rawActual as Record<string, unknown>;
+      if ('value' in obj) {
+        actual = obj.value;
+        if (typeof obj.unit === 'string') actualUnit = obj.unit;
+      } else if ('normalizedValue' in obj) {
+        actual = obj.normalizedValue;
+        if (typeof obj.unit === 'string') actualUnit = obj.unit;
+      }
+    }
+
+    // Also check companion unit in facts if not directly on fact object
+    if (!actualUnit) {
+      const companionUnit = facts[`${cond.attributeKey}Unit`] || facts['landAreaUnit'] || facts['incomeUnit'];
+      if (typeof companionUnit === 'string') {
+        actualUnit = companionUnit;
+      }
+    }
+
+    // Target unit from condition or canonical attribute default unit
+    const targetUnit = cond.expectedUnit || canonicalAttr?.canonicalUnit;
+
+    // Unit conversion if measurable and units differ
+    if (
+      typeof actual === 'number' &&
+      actualUnit &&
+      targetUnit &&
+      actualUnit.toUpperCase() !== targetUnit.toUpperCase()
+    ) {
+      const conv = this.semanticRegistry.convertUnit(actual, actualUnit, targetUnit);
+      if (conv.success && conv.convertedValue !== undefined) {
+        actual = conv.convertedValue;
+      }
+    }
+
+    // Categorical Canonical Resolution: If attribute is an ENUM with controlled values, resolve actual alias
+    if (canonicalAttr && canonicalAttr.dataType === AttributeDataType.ENUM && typeof actual === 'string') {
+      const resolution = this.semanticRegistry.resolveCanonicalValue(canonicalAttr.code, actual);
+      if (resolution.resolved && resolution.canonicalValue !== undefined) {
+        actual = resolution.canonicalValue;
+      }
+    }
+
+    const expected = cond.expectedValue;
+    const isPassed = this.applyOperator(cond.operator, actual, expected);
+
+    return { isPassed, resolvedValue: actual };
+  }
+
+  private applyOperator(operator: string, actual: unknown, expected: unknown): boolean {
+    switch (operator) {
       case RuleOperator.EQUALS:
         return String(actual) === String(expected);
       case RuleOperator.NOT_EQUALS:
         return String(actual) !== String(expected);
-      case RuleOperator.GREATER_THAN:
-        return Number(actual) > Number(expected);
-      case RuleOperator.LESS_THAN:
-        return Number(actual) < Number(expected);
-      case RuleOperator.GREATER_OR_EQUAL:
-        return Number(actual) >= Number(expected);
-      case RuleOperator.LESS_OR_EQUAL:
-        return Number(actual) <= Number(expected);
-      case RuleOperator.BETWEEN:
+      case RuleOperator.GREATER_THAN: {
+        const a = Number(actual);
+        const e = Number(expected);
+        if (!Number.isFinite(a) || !Number.isFinite(e)) return false;
+        return a > e;
+      }
+      case RuleOperator.LESS_THAN: {
+        const a = Number(actual);
+        const e = Number(expected);
+        if (!Number.isFinite(a) || !Number.isFinite(e)) return false;
+        return a < e;
+      }
+      case RuleOperator.GREATER_OR_EQUAL: {
+        const a = Number(actual);
+        const e = Number(expected);
+        if (!Number.isFinite(a) || !Number.isFinite(e)) return false;
+        return a >= e;
+      }
+      case RuleOperator.LESS_OR_EQUAL: {
+        const a = Number(actual);
+        const e = Number(expected);
+        if (!Number.isFinite(a) || !Number.isFinite(e)) return false;
+        return a <= e;
+      }
+      case RuleOperator.BETWEEN: {
         if (Array.isArray(expected) && expected.length === 2) {
           const val = Number(actual);
-          return val >= Number(expected[0]) && val <= Number(expected[1]);
+          const min = Number(expected[0]);
+          const max = Number(expected[1]);
+          if (!Number.isFinite(val) || !Number.isFinite(min) || !Number.isFinite(max)) return false;
+          return val >= min && val <= max;
         }
         return false;
+      }
       case RuleOperator.IN:
         return Array.isArray(expected) ? expected.map(String).includes(String(actual)) : false;
       case RuleOperator.NOT_IN:

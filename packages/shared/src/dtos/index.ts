@@ -11,3 +11,5 @@ export * from './citizen-profile.dtos';
 export * from './fact-verification.dtos';
 export * from './decision-re-evaluation.dtos';
 export * from './notification.dtos';
+export * from './semantic.dtos';
+export * from './candidate-retrieval.dtos';

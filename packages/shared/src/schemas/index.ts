@@ -15,3 +15,5 @@ export * from './citizen-profile.schema';
 export * from './fact-verification.schema';
 export * from './decision-re-evaluation.schema';
 export * from './notification.schema';
+export * from './semantic.schema';
+export * from './candidate-retrieval.schema';

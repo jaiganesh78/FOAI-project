@@ -216,7 +216,7 @@ export class PrismaNotificationRepository implements INotificationRepository {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + leaseDurationMs);
 
-    const result = await this.prisma.notificationDelivery.updateMany({
+        const result = await this.prisma.notificationDelivery.updateMany({
       where: {
         id: deliveryId,
         status: { in: ['PENDING', 'RETRY_SCHEDULED'] },

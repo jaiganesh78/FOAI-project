@@ -34,6 +34,8 @@ import { ActionCenterService } from './action-center.service';
 import { NotificationIngestionService } from './notification-ingestion.service';
 import { NotificationOutboxService } from './notification-outbox.service';
 import { NotificationReplayService } from './notification-replay.service';
+import { NotificationOrchestratorService } from './notification-orchestrator.service';
+import { NotificationAnalyticsService } from './notification-analytics.service';
 import { InAppChannelAdapter } from './adapters/in-app-channel.adapter';
 import { EmailChannelAdapter } from './adapters/email-channel.adapter';
 import { SmsChannelAdapter } from './adapters/sms-channel.adapter';
@@ -41,6 +43,8 @@ import { PushChannelAdapter } from './adapters/push-channel.adapter';
 import {
   NotificationPriority,
   NotificationChannel,
+  NotificationStatus,
+  NotificationType,
   ActionItemStatus,
   DeliveryStatus,
   DeliveryAttemptStatus,
@@ -190,8 +194,34 @@ function buildServices(repo: INotificationRepository) {
   const ingestionService = new NotificationIngestionService(repo);
   const outboxService = new NotificationOutboxService(repo, inAppAdapter, emailAdapter, smsAdapter, pushAdapter);
   const replayService = new NotificationReplayService(repo, rendererService);
+  const orchestratorService = new NotificationOrchestratorService(
+    {} as never,
+    repo,
+    ingestionService,
+    policyService,
+    channelService,
+    rendererService,
+    supersessionService,
+    outboxService,
+  );
+  const analyticsService = new NotificationAnalyticsService(repo);
 
-  return { policyService, channelService, rendererService, supersessionService, actionCenterService, ingestionService, outboxService, replayService, inAppAdapter, emailAdapter, smsAdapter, pushAdapter };
+  return {
+    policyService,
+    channelService,
+    rendererService,
+    supersessionService,
+    actionCenterService,
+    ingestionService,
+    outboxService,
+    replayService,
+    orchestratorService,
+    analyticsService,
+    inAppAdapter,
+    emailAdapter,
+    smsAdapter,
+    pushAdapter,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -927,13 +957,28 @@ describe('PA-8: Security & Ownership Boundaries', () => {
     services = buildServices(repo);
   });
 
-  it('PA-8-1: cross-citizen notification access rejected in orchestrator (CODE_VERIFIED)', () => {
-    // CODE_VERIFIED: notification-orchestrator.service.ts line 207:
-    //   if (notif.userId !== userId)
-    //     throw new Error('Security Boundary Rejection: User ... does not own Notification ...')
-    // This guard is present and enforced before any CAS update.
-    // Full HTTP test (401/403 response) requires NestJS supertest — NOT_VERIFIED at HTTP level.
-    expect(true).toBe(true);
+  it('PA-8-1: cross-citizen notification access rejected in orchestrator (UNIT_BEHAVIORAL)', async () => {
+    vi.spyOn(repo, 'findNotificationById').mockResolvedValue({
+      id: 'notif-001',
+      userId: 'user-A',
+      title: 'Test',
+      body: 'Body',
+      status: NotificationStatus.CREATED,
+      version: 1,
+      notificationType: NotificationType.ELIGIBILITY_CHANGE,
+      priority: NotificationPriority.MEDIUM,
+      policyId: 'pol-1',
+      policyVersion: 1,
+      policyChecksumSha256: 'sha',
+      dependencyFingerprintSha256: 'sha',
+      checksumSha256: 'sha',
+      idempotencyKey: 'idem-1',
+      createdAt: new Date(),
+    } as any);
+
+    await expect(
+      services.orchestratorService.markNotificationAsRead('notif-001', 'user-B', 1),
+    ).rejects.toThrow("Security Boundary Rejection: User 'user-B' does not own Notification 'notif-001'.");
   });
 
   it('PA-8-2: action center transitionState rejects cross-user access', async () => {
@@ -949,21 +994,35 @@ describe('PA-8: Security & Ownership Boundaries', () => {
     // Evidence: UNIT_BEHAVIORAL
   });
 
-  it('PA-8-3: analytics endpoint role check — CITIZEN role rejected (code-level verification)', () => {
-    // From notification.controller.ts line 120-122:
-    // if (!roles.includes('GOVERNMENT_OFFICER') && !roles.includes('ADMIN'))
-    //   throw new ForbiddenException(...)
-    // CODE_VERIFIED via direct code inspection — not HTTP-level verified
-    // NOT_VERIFIED: actual HTTP 403 response requires NestJS supertest integration
-    expect(true).toBe(true);
-    // STATUS: CODE VERIFIED — HTTP runtime verification NOT PERFORMED
+  it('PA-8-3: analytics endpoint role check — CITIZEN role rejected (UNIT_BEHAVIORAL)', async () => {
+    const { NotificationController } = await import('../controllers/notification.controller');
+    const controller = new NotificationController(
+      services.orchestratorService,
+      repo,
+      services.replayService,
+      services.analyticsService,
+      services.policyService,
+    );
+    await expect(
+      controller.getAnalytics({ id: 'u1', roles: ['CITIZEN'] } as any, { user: { id: 'u1', roles: ['CITIZEN'] } } as any),
+    ).rejects.toThrow('Security Boundary Rejection: Operational analytics require Officer or Admin role.');
   });
 
-  it('PA-8-4: template creation endpoint rejects non-officer/admin (code-level)', () => {
-    // notification.controller.ts line 128-130: same role check
-    // CODE_VERIFIED via direct code inspection
-    expect(true).toBe(true);
-    // STATUS: CODE VERIFIED — HTTP runtime verification NOT PERFORMED
+  it('PA-8-4: template creation endpoint rejects non-officer/admin (UNIT_BEHAVIORAL)', async () => {
+    const { NotificationController } = await import('../controllers/notification.controller');
+    const controller = new NotificationController(
+      services.orchestratorService,
+      repo,
+      services.replayService,
+      services.analyticsService,
+      services.policyService,
+    );
+    await expect(
+      controller.createTemplateVersion(
+        { templateId: 't1', version: 1, titleTemplate: 'T', bodyTemplate: 'B' },
+        { user: { id: 'u1', roles: ['CITIZEN'] } } as any,
+      ),
+    ).rejects.toThrow('Security Boundary Rejection: Template management requires Officer or Admin role.');
   });
 });
 
@@ -972,24 +1031,33 @@ describe('PA-8: Security & Ownership Boundaries', () => {
 // Evidence type: CODE_VERIFIED + package inspection
 // ─────────────────────────────────────────────────────────────────────────────
 describe('PA-9: Zero-AI Constraint Verification', () => {
-  it('PA-9-1: notification module source does NOT import langfuse', async () => {
-    // Direct code inspection of all notification module files
-    // Verified by grep: no langfuse import in apps/backend/src/modules/notification/**
-    // The langfuse package IS present in:
-    //   apps/backend/src/core/telemetry/langfuse.service.ts (AI observability)
-    //   apps/backend/src/core/telemetry/telemetry.module.ts
-    //   apps/backend/src/core/config/ai.config.ts
-    // The notification module itself does NOT import langfuse.
-    // HOWEVER: langfuse is an AI observability SDK in package.json dependencies.
-    // This means the BACKEND binary includes langfuse — it is initialized at startup.
-    // If the Zero-AI constraint means "no AI inference in notification processing",
-    //   this is SATISFIED.
-    // If the Zero-AI constraint means "no AI packages imported anywhere in the binary",
-    //   this is VIOLATED because langfuse is imported at startup.
-    expect(true).toBe(true);
-    // Evidence: CODE_VERIFIED
-    // Classification: PARTIALLY_VERIFIED
-    // See: DEF-005 in defect register
+  it('PA-9-1: notification module source does NOT import langfuse (CODE_VERIFIED)', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const notifDir = path.resolve(__dirname, '..');
+
+    function getFiles(dir: string): string[] {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const files: string[] = [];
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          files.push(...getFiles(fullPath));
+        } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.js'))) {
+          files.push(fullPath);
+        }
+      }
+      return files;
+    }
+
+    const files = getFiles(notifDir);
+    expect(files.length).toBeGreaterThan(0);
+
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf-8');
+      const hasLangfuseImport = /from\s+['"].*langfuse.*['"]|import\s*\(?['"].*langfuse.*['"]\)?|require\s*\(\s*['"].*langfuse.*['"]\s*\)/i.test(content);
+      expect(hasLangfuseImport).toBe(false);
+    }
   });
 
   it('PA-9-2: InAppChannelAdapter has no LLM/ML imports', () => {
@@ -1058,44 +1126,6 @@ describe('PA-10: Delivery Guarantee Classification — At-Least-Once', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION PA-11: WORKER CRASH RECOVERY (CONCEPTUAL — NOT EMPIRICALLY VERIFIED)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('PA-11: Worker Crash Recovery — Evidence Classification', () => {
-  it('PA-11-1: lease expiry recovery mechanism exists in code — DEF-001 FIX: atomic WHERE (CODE_VERIFIED)', () => {
-    // DEF-001 FIX: acquireDeliveryLease now uses atomic updateMany with WHERE predicate:
-    //   WHERE id=? AND status IN ('PENDING','RETRY_SCHEDULED')
-    //     AND (leaseExpiresAt IS NULL OR leaseExpiresAt <= now)
-    //
-    // This means:
-    //   - An expired lease (leaseExpiresAt <= now) can be re-acquired by a new worker atomically.
-    //   - The WHERE clause is evaluated and the row is locked atomically at DB level.
-    //
-    // CODE_VERIFIED: Atomic lease mechanism now implemented in repository.
-    // NOT_VERIFIED: Process-level crash + lease expiry cycle requires real DB + time advancement.
-    expect(true).toBe(true);
-    // Status: CODE_VERIFIED — DEF-001 FIXED, crash recovery mechanism exists
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION PA-12: RETRY TIMING — UPDATED AFTER DEF-006 FIX
-// ─────────────────────────────────────────────────────────────────────────────
-describe('PA-12: Retry Timing — DEF-006 FIX VERIFICATION', () => {
-  it('PA-12-1: retry backoff schedule IS now implemented (DEF-006 FIXED)', () => {
-    // DEF-006 FIX applied:
-    //   - RETRY_BACKOFF_MS = [5000, 15000, 45000, 135000, 405000] exported from outbox service
-    //   - calculateNextRetryAt(retryCount, maxRetries) computes nextRetryAt
-    //   - nextRetryAt field added to NotificationDelivery schema
-    //   - updateDeliveryStatus now accepts and persists nextRetryAt
-    //   - processDelivery guards against processing before nextRetryAt
-    //
-    // This test is a placeholder acknowledging the fix; timing tests are in PA-13.
-    expect(true).toBe(true);
-    // Status: CODE_VERIFIED — DEF-006 FIXED
-  });
-});
-
 // =============================================================================
 // REMEDIATION VERIFICATION TESTS — POST-FIX
 // Tests added during Sprint 12 Master Production Reality Remediation
@@ -1143,30 +1173,27 @@ describe('PA-13: DEF-001 FIX — Atomic Delivery Lease (UNIT_BEHAVIORAL)', () =>
     expect(repoA.createDeliveryAttempt).toHaveBeenCalledTimes(1);
   });
 
-  it('PA-13-2: expired-lease delivery is eligible for re-acquisition (CODE_VERIFIED)', () => {
-    // The fixed acquireDeliveryLease WHERE clause includes:
-    //   OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }]
-    // A delivery where leaseExpiresAt < now is always eligible for re-acquisition.
-    // This covers the crash-recovery scenario: expired lease = new worker can claim.
-    //
-    // Cannot be tested against real DB without live PostgreSQL.
-    // Classification: CODE_VERIFIED
-    expect(true).toBe(true);
-  });
+  it('PA-13-4: acquireOutboxLease uses atomic updateMany with status and lease guard (REPOSITORY_SPY)', async () => {
+    const updateManyMock = vi.fn().mockResolvedValue({ count: 1 });
+    const findUniqueMock = vi.fn().mockResolvedValue({ id: 'outbox-001', status: 'PROCESSING', version: 2 });
+    const prismaSpy = {
+      notificationOutbox: {
+        updateMany: updateManyMock,
+        findUnique: findUniqueMock,
+      },
+    };
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
 
-  it('PA-13-3: RETRY_SCHEDULED delivery is included in lease acquisition eligibility (CODE_VERIFIED)', () => {
-    // Fixed WHERE clause: status IN ('PENDING', 'RETRY_SCHEDULED')
-    // Previous TOCTOU code also handled RETRY_SCHEDULED. The fix preserves this.
-    // CODE_VERIFIED: RETRY_SCHEDULED is in the atomic WHERE predicate.
-    expect(true).toBe(true);
-  });
+    await repo.acquireOutboxLease('outbox-001', 'worker-A', 30000);
 
-  it('PA-13-4: acquireOutboxLease uses same atomic pattern (CODE_VERIFIED)', () => {
-    // acquireOutboxLease was also fixed with the same updateMany WHERE pattern.
-    // Previous: findUnique + update (TOCTOU)
-    // Fixed:    updateMany WHERE status='PENDING' AND (leaseExpiresAt IS NULL OR <= now)
-    // CODE_VERIFIED.
-    expect(true).toBe(true);
+    expect(updateManyMock).toHaveBeenCalledTimes(1);
+    const callArgs = updateManyMock.mock.calls[0][0];
+    expect(callArgs.where.id).toBe('outbox-001');
+    expect(callArgs.where.status).toBe('PENDING');
+    expect(callArgs.where.OR).toBeDefined();
+    expect(callArgs.data.status).toBe('LEASED');
+    expect(callArgs.data.leaseOwner).toBe('worker-A');
   });
 });
 
@@ -1237,13 +1264,6 @@ describe('PA-14: DEF-002 FIX — Atomic CAS Updates (UNIT_BEHAVIORAL)', () => {
         expectedVersion: 1,
       }),
     ).rejects.toThrow('CAS Concurrency Conflict');
-  });
-
-  it('PA-14-4: updateDeliveryStatus atomic — version increment confirmed (CODE_VERIFIED)', () => {
-    // Fixed implementation uses { version: { increment: 1 } } in updateMany data.
-    // This is a Prisma atomic increment — evaluated server-side in a single round-trip.
-    // Cannot be tested without real DB. CODE_VERIFIED.
-    expect(true).toBe(true);
   });
 });
 
@@ -1524,33 +1544,40 @@ describe('PA-16: DEF-006 FIX — Retry Backoff Scheduling (UNIT_BEHAVIORAL)', ()
 // Evidence type: CODE_VERIFIED
 // ─────────────────────────────────────────────────────────────────────────────
 describe('PA-17: DEF-005 — Zero-AI Boundary Audit (CODE_VERIFIED)', () => {
-  it('PA-17-1: notification module imports contain NO LLM/AI imports (CODE_VERIFIED)', () => {
-    // Verified by direct inspection of all service files in:
-    //   apps/backend/src/modules/notification/services/
-    // None of the following imports exist in any notification service:
-    //   - langfuse
-    //   - openai
-    //   - @anthropic-ai/sdk
-    //   - langchain
-    //   - @google-ai/generativelanguage
-    //   - any embedding or vector search SDK
-    //
-    // FINDING: Zero-AI constraint IS satisfied at the NOTIFICATION PROCESSING boundary.
-    // The notification module performs:
-    //   - SHA-256 checksums (crypto, deterministic)
-    //   - String template rendering (regex, deterministic)
-    //   - Rule-based policy evaluation (boolean logic)
-    //   - State machine transitions (lookup tables)
-    //
-    // langfuse IS present in apps/backend/src/core/telemetry/ (LLM observability SDK).
-    // It is initialized at backend startup for general API tracing.
-    // It is NOT imported by any notification module service.
-    //
-    // CLASSIFICATION:
-    //   Sprint 12 PROCESSING AI USAGE: ZERO — VERIFIED
-    //   Backend BINARY / PLATFORM AI OBSERVABILITY: langfuse PRESENT (tracing SDK)
-    //   Zero-AI notification processing constraint: SATISFIED
-    expect(true).toBe(true);
+  it('PA-17-1: notification module source contains NO LLM/AI imports (CODE_VERIFIED)', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const notifDir = path.resolve(__dirname, '..');
+
+    function getFiles(dir: string): string[] {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const files: string[] = [];
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          files.push(...getFiles(fullPath));
+        } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.js')) && !entry.name.endsWith('.spec.ts')) {
+          files.push(fullPath);
+        }
+      }
+      return files;
+    }
+
+    const files = getFiles(notifDir);
+    expect(files.length).toBeGreaterThan(0);
+
+    const bannedImportPatterns = [
+      /from\s+['"].*(openai|@anthropic-ai|langchain|@google-ai|@google\/generative-ai|langfuse).*['"]/i,
+      /import\s*\(\s*['"].*(openai|@anthropic-ai|langchain|@google-ai|@google\/generative-ai|langfuse).*['"]\s*\)/i,
+      /require\s*\(\s*['"].*(openai|@anthropic-ai|langchain|@google-ai|@google\/generative-ai|langfuse).*['"]\s*\)/i,
+    ];
+
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf-8');
+      for (const pattern of bannedImportPatterns) {
+        expect(pattern.test(content)).toBe(false);
+      }
+    }
   });
 
   it('PA-17-2: renderer uses crypto SHA-256 only — no ML (CODE_VERIFIED)', async () => {
@@ -1573,48 +1600,264 @@ describe('PA-17: DEF-005 — Zero-AI Boundary Audit (CODE_VERIFIED)', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION PA-18: SCHEMA CHANGES — DB INFRASTRUCTURE CLASSIFICATION
-// Evidence type: CODE_VERIFIED (schema), NOT_VERIFIED (DB enforcement)
-// ─────────────────────────────────────────────────────────────────────────────
-describe('PA-18: Schema Changes — DEF-003 and DEF-006 Field Additions (CODE_VERIFIED)', () => {
-  it('PA-18-1: templateParameters Json? field added to Notification model (CODE_VERIFIED)', () => {
-    // schema.prisma Notification model now includes:
-    //   templateParameters  Json?
-    // This field persists the original template parameters for deterministic replay.
-    // Prisma client has been regenerated (v6.19.3) to include this field.
-    //
-    // DB enforcement: NOT_VERIFIED — requires live PostgreSQL with migration applied.
-    // Migration generation: NOT_EXECUTED — no DATABASE_URL available in this environment.
-    // Classification: CODE_VERIFIED (schema definition) | NOT_VERIFIED (DB migration)
-    expect(true).toBe(true);
+// =============================================================================
+// PA-19: DEF-001 REPOSITORY SPY — Verifies acquireDeliveryLease uses atomic
+// updateMany and NOT the old findUnique+update TOCTOU pattern.
+//
+// Evidence type: REPOSITORY_SPY — exercises PrismaNotificationRepository
+// directly with a Prisma mock client. Mutation of acquireDeliveryLease back
+// to findUnique+update will cause PA-19-1 to fail.
+// =============================================================================
+describe('PA-19: DEF-001 FIX — Repository Spy: acquireDeliveryLease uses atomic updateMany (REPOSITORY_SPY)', () => {
+  /**
+   * Build a minimal mock of PrismaService that the real PrismaNotificationRepository
+   * can be instantiated against. We spy on prisma.notificationDelivery.updateMany to
+   * assert that the actual repository calls updateMany (atomic) rather than
+   * findUnique + update (TOCTOU).
+   */
+  function buildPrismaSpy() {
+    const updateManyMock = vi.fn().mockResolvedValue({ count: 1 });
+    const findUniqueMock = vi.fn().mockResolvedValue({
+      id: 'del-spy-001',
+      notificationId: 'notif-spy-001',
+      userId: 'user-spy',
+      channel: 'IN_APP',
+      status: 'LEASED',
+      deliveryIdempotencyKey: 'idem-spy',
+      retryCount: 0,
+      maxRetries: 5,
+      version: 2,
+      leaseOwner: 'worker-spy',
+      leaseExpiresAt: new Date(Date.now() + 30000),
+    });
+    const updateMockDelivery = vi.fn().mockResolvedValue({});
+
+    const prismaSpy = {
+      notification: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      notificationDelivery: {
+        updateMany: updateManyMock,
+        findUnique: findUniqueMock,
+        update: updateMockDelivery,
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      citizenActionItem: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      notificationTemplateVersion: { findUnique: vi.fn().mockResolvedValue(null) },
+      notificationPolicyVersion: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
+      notificationPreference: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({}) },
+      notificationSuppression: { findMany: vi.fn().mockResolvedValue([]) },
+      notificationOutbox: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      notificationDeliveryAttempt: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prismaSpy)),
+    };
+    return { prismaSpy, updateManyMock, findUniqueMock, updateMockDelivery };
+  }
+
+  it('PA-19-1: acquireDeliveryLease calls updateMany (not findUnique+update) — DEF-001 FIX VERIFIED (REPOSITORY_SPY)', async () => {
+    const { prismaSpy, updateManyMock, updateMockDelivery } = buildPrismaSpy();
+
+    // Import and instantiate the REAL repository class with the spy Prisma client
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
+
+    await repo.acquireDeliveryLease('del-spy-001', 'worker-spy', 30000);
+
+    // ASSERTION: updateMany must have been called with the atomic WHERE predicate
+    expect(updateManyMock).toHaveBeenCalledTimes(1);
+    const callArgs = updateManyMock.mock.calls[0][0];
+
+    // WHERE must include id
+    expect(callArgs.where.id).toBe('del-spy-001');
+    // WHERE must include status constraint (atomic predicate — PENDING or RETRY_SCHEDULED)
+    expect(callArgs.where.status).toBeDefined();
+    // WHERE must include OR lease guard
+    expect(callArgs.where.OR).toBeDefined();
+    expect(Array.isArray(callArgs.where.OR)).toBe(true);
+    // DATA must set status to LEASED atomically
+    expect(callArgs.data.status).toBe('LEASED');
+    // DATA must set leaseOwner
+    expect(callArgs.data.leaseOwner).toBe('worker-spy');
+    // DATA must atomically increment version
+    expect(callArgs.data.version).toEqual({ increment: 1 });
+
+    // REGRESSION GUARD: the old TOCTOU pattern used prisma.notificationDelivery.update
+    // If DEF-001 is reverted, update will be called instead of updateMany.
+    // This assertion ensures the old pattern is NOT used.
+    expect(updateMockDelivery).not.toHaveBeenCalled();
   });
 
-  it('PA-18-2: nextRetryAt DateTime? field added to NotificationDelivery model (CODE_VERIFIED)', () => {
-    // schema.prisma NotificationDelivery model now includes:
-    //   nextRetryAt  DateTime?
-    // Workers check this field before processing RETRY_SCHEDULED deliveries.
-    // Index updated: @@index([status, scheduledAt, leaseExpiresAt, nextRetryAt])
-    //
-    // DB enforcement: NOT_VERIFIED — requires live PostgreSQL with migration applied.
-    // Classification: CODE_VERIFIED (schema definition) | NOT_VERIFIED (DB migration)
-    expect(true).toBe(true);
+  it('PA-19-2: acquireDeliveryLease WHERE includes leaseExpiresAt guard (OR null OR lte now) — expired lease eligible (REPOSITORY_SPY)', async () => {
+    const { prismaSpy, updateManyMock } = buildPrismaSpy();
+
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
+
+    await repo.acquireDeliveryLease('del-spy-001', 'worker-spy', 30000);
+
+    const callArgs = updateManyMock.mock.calls[0][0];
+    const orClause: { leaseExpiresAt?: unknown }[] = callArgs.where.OR;
+
+    // First branch: leaseExpiresAt is null (never leased)
+    const nullBranch = orClause.find((c) => c.leaseExpiresAt === null);
+    expect(nullBranch).toBeDefined();
+
+    // Second branch: leaseExpiresAt <= now (expired lease — crash recovery)
+    const expiredBranch = orClause.find((c) => typeof c.leaseExpiresAt === 'object' && c.leaseExpiresAt !== null && 'lte' in (c.leaseExpiresAt as object));
+    expect(expiredBranch).toBeDefined();
   });
 
-  it('PA-18-3: migration generation — INFRASTRUCTURE_BLOCKER documented', () => {
-    // To generate the migration file:
-    //   DATABASE_URL=postgresql://... npx prisma migrate dev --name add-template-params-and-next-retry-at
-    //
-    // BLOCKER: No DATABASE_URL configured in this environment.
-    // The Prisma schema is correct; migration cannot be applied without a live DB.
-    //
-    // REQUIRED for production deployment:
-    //   1. Configure DATABASE_URL
-    //   2. Run: npx prisma migrate dev --name add-template-params-and-next-retry-at
-    //   3. Apply to staging/production databases before deploying updated code
-    //
-    // Classification: NOT_VERIFIED (INFRASTRUCTURE_BLOCKER: no DB)
-    expect(true).toBe(true);
+  it('PA-19-3: acquireDeliveryLease returns null when updateMany count=0 — no provider invoked (REPOSITORY_SPY)', async () => {
+    const { prismaSpy } = buildPrismaSpy();
+    // Override: updateMany returns count=0 (lease held by another)
+    prismaSpy.notificationDelivery.updateMany = vi.fn().mockResolvedValue({ count: 0 });
+
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
+
+    const result = await repo.acquireDeliveryLease('del-spy-001', 'worker-spy', 30000);
+    expect(result).toBeNull();
+  });
+});
+
+// =============================================================================
+// PA-20: DEF-002 REPOSITORY SPY — Verifies updateNotificationStatus uses
+// atomic updateMany with version guard in WHERE clause.
+//
+// Evidence type: REPOSITORY_SPY — exercises PrismaNotificationRepository
+// directly with a Prisma mock client. Mutation of the WHERE version guard
+// will cause PA-20-1 to fail.
+// =============================================================================
+describe('PA-20: DEF-002 FIX — Repository Spy: updateNotificationStatus uses version guard in updateMany WHERE (REPOSITORY_SPY)', () => {
+  function buildNotificationPrismaSpy() {
+    const existingNotif = {
+      id: 'notif-spy-001',
+      userId: 'user-spy',
+      status: 'CREATED',
+      version: 3,
+      readAt: null,
+      supersededByNotificationId: null,
+    };
+
+    const updateManyMock = vi.fn().mockResolvedValue({ count: 1 });
+    const findUniqueMock = vi.fn().mockResolvedValue({ ...existingNotif });
+
+    const prismaSpy = {
+      notification: {
+        findUnique: findUniqueMock,
+        updateMany: updateManyMock,
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      notificationDelivery: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      citizenActionItem: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      notificationTemplateVersion: { findUnique: vi.fn().mockResolvedValue(null) },
+      notificationPolicyVersion: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
+      notificationPreference: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({}) },
+      notificationSuppression: { findMany: vi.fn().mockResolvedValue([]) },
+      notificationOutbox: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      notificationDeliveryAttempt: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prismaSpy)),
+    };
+    return { prismaSpy, updateManyMock, findUniqueMock };
+  }
+
+  it('PA-20-1: updateNotificationStatus — updateMany WHERE includes version guard when expectedVersion provided (REPOSITORY_SPY)', async () => {
+    const { prismaSpy, updateManyMock } = buildNotificationPrismaSpy();
+
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
+
+    await repo.updateNotificationStatus('notif-spy-001', 'READ', 3, { readAt: new Date() });
+
+    expect(updateManyMock).toHaveBeenCalledTimes(1);
+    const callArgs = updateManyMock.mock.calls[0][0];
+
+    // CRITICAL ASSERTION: WHERE must include version = expectedVersion (CAS guard)
+    expect(callArgs.where.id).toBe('notif-spy-001');
+    expect(callArgs.where.version).toBe(3); // ← version guard present
+
+    // DATA must atomically increment version
+    expect(callArgs.data.version).toEqual({ increment: 1 });
+    // Status must be updated
+    expect(callArgs.data.status).toBe('READ');
+  });
+
+  it('PA-20-2: updateNotificationStatus — updateMany WHERE has NO version when expectedVersion omitted (REPOSITORY_SPY)', async () => {
+    const { prismaSpy, updateManyMock } = buildNotificationPrismaSpy();
+
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
+
+    // Call without expectedVersion — version guard should be absent
+    await repo.updateNotificationStatus('notif-spy-001', 'SUPERSEDED');
+
+    expect(updateManyMock).toHaveBeenCalledTimes(1);
+    const callArgs = updateManyMock.mock.calls[0][0];
+
+    // No version guard when expectedVersion is undefined
+    expect(callArgs.where.version).toBeUndefined();
+    // id must still be present
+    expect(callArgs.where.id).toBe('notif-spy-001');
+  });
+
+  it('PA-20-3: updateNotificationStatus — ConflictException when updateMany count=0 with expectedVersion (REPOSITORY_SPY)', async () => {
+    const { prismaSpy } = buildNotificationPrismaSpy();
+    // Simulate: record was concurrently modified (version mismatch)
+    prismaSpy.notification.updateMany = vi.fn().mockResolvedValue({ count: 0 });
+
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
+
+    await expect(
+      repo.updateNotificationStatus('notif-spy-001', 'READ', 99),
+    ).rejects.toThrow('CAS Concurrency Conflict');
+  });
+
+  it('PA-20-4: updateDeliveryStatus — updateMany WHERE includes version guard (REPOSITORY_SPY)', async () => {
+    const { prismaSpy } = buildNotificationPrismaSpy();
+
+    const existingDelivery = {
+      id: 'del-spy-001', status: 'LEASED', version: 2,
+      providerName: null, deliveredAt: null, failureReason: null,
+      failureCategory: null, retryCount: 0, nextRetryAt: null,
+    };
+    prismaSpy.notificationDelivery.findUnique = vi.fn().mockResolvedValue(existingDelivery);
+    const deliveryUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+    prismaSpy.notificationDelivery.updateMany = deliveryUpdateMany;
+    prismaSpy.notificationDelivery.findUnique = vi.fn()
+      .mockResolvedValueOnce(existingDelivery) // pre-fetch
+      .mockResolvedValueOnce({ ...existingDelivery, status: 'SUCCEEDED', version: 3 }); // post-update read
+
+    const { PrismaNotificationRepository } = await import('../repositories/prisma-notification.repository');
+    const repo = new PrismaNotificationRepository(prismaSpy as never);
+
+    await repo.updateDeliveryStatus('del-spy-001', 'SUCCEEDED', 2);
+
+    expect(deliveryUpdateMany).toHaveBeenCalledTimes(1);
+    const callArgs = deliveryUpdateMany.mock.calls[0][0];
+    expect(callArgs.where.id).toBe('del-spy-001');
+    expect(callArgs.where.version).toBe(2); // ← version guard present
+    expect(callArgs.data.version).toEqual({ increment: 1 });
   });
 });
 

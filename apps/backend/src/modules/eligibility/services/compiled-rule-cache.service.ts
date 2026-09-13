@@ -8,6 +8,7 @@ export interface ExecutableRuleCondition {
   operator: string;
   expectedValue: unknown;
   estimatedCost: string;
+  expectedUnit?: string;
 }
 
 export interface ExecutableRuleGroup {

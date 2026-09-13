@@ -10,6 +10,7 @@ import { ClockModule } from './core/clock/clock.module';
 import { FeatureFlagModule } from './core/feature-flag/feature-flag.module';
 import { TelemetryModule } from './core/telemetry/telemetry.module';
 import { HealthModule } from './core/health/health.module';
+import { SemanticModule } from './core/semantic/semantic.module';
 import { CorrelationMiddleware } from './core/logger/correlation.middleware';
 
 // IAM Module
@@ -31,6 +32,7 @@ import { CompanionModule } from './modules/companion/companion.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { CandidateRetrievalModule } from './modules/candidate-retrieval/candidate-retrieval.module';
 
 @Module({
   imports: [
@@ -46,6 +48,7 @@ import { NotificationModule } from './modules/notification/notification.module';
     FeatureFlagModule,
     TelemetryModule,
     HealthModule,
+    SemanticModule,
 
     // Identity & Access Management (IAM) Module
     AuthModule,
@@ -66,6 +69,7 @@ import { NotificationModule } from './modules/notification/notification.module';
     CopilotModule,
     AdminModule,
     NotificationModule,
+    CandidateRetrievalModule,
   ],
 })
 export class AppModule implements NestModule {

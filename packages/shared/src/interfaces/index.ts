@@ -19,3 +19,6 @@ export interface ComponentHealthStatus {
   latencyMs?: number;
   details?: Record<string, unknown>;
 }
+
+export * from './semantic.interface';
+export * from './candidate-retrieval.interface';

@@ -14,3 +14,4 @@ export * from './health.enum';
 export * from './fact-verification.enum';
 export * from './decision-re-evaluation.enum';
 export * from './notification.enum';
+export * from './semantic.enum';
